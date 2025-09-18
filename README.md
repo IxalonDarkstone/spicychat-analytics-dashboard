@@ -83,8 +83,10 @@ spicychat-analytics/
 
 - **Main Page with Totals History**
 <img src="images/deltatracking.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
+
 - **Main Page with Totals History Hidden and Bot Cards**
 <img src="images/mainlayout.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
+
 - **Bot Details Page**
 <img src="images/botdetails.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
 
