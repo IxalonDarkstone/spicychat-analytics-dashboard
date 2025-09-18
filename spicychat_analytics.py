@@ -20,6 +20,8 @@ from matplotlib.ticker import StrMethodFormatter
 from scipy.interpolate import make_interp_spline
 from playwright.sync_api import sync_playwright
 from urllib.parse import urlparse
+import hashlib
+import pytz
 
 # ------------------ Config ------------------
 BASE_DIR = Path(__file__).resolve().parent
@@ -32,11 +34,15 @@ MY_BOTS_URL = "https://spicychat.ai/my-chatbots"
 CHARTS_DIR = BASE_DIR / "charts"
 STATIC_CHARTS_DIR = BASE_DIR / "static/charts"
 CHART_TIMEOUT = 300  # Timeout in seconds for chart generation
+AVATAR_BASE_URL = "https://cdn.nd-api.com/avatars"
 
 ALLOWED_FIELDS = [
     "date", "bot_id", "bot_name", "bot_title",
-    "num_messages", "creator_user_id", "created_at"
+    "num_messages", "creator_user_id", "created_at", "avatar_url"
 ]
+
+# Set CDT timezone
+CDT = pytz.timezone('America/Chicago')
 
 # ------------------ Flask App ------------------
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -60,7 +66,7 @@ def setup_logging():
         try:
             sys.stdout.reconfigure(encoding='utf-8')
         except Exception as e:
-            logging.warning(f"Failed to reconfigure stdout to UTF-8: {e}")
+            logging.warning(f"Failed to reconfigure stdout to UTC-8: {e}")
 
 def safe_log(message):
     """Log a message, handling unencodable characters."""
@@ -68,6 +74,163 @@ def safe_log(message):
         logging.info(message)
     except UnicodeEncodeError:
         logging.info(message.encode('ascii', errors='replace').decode('ascii'))
+
+# ------------------ Utils ------------------
+def get_bots_data(sort_by="delta", sort_asc=False, created_after="All", timeframe="All"):
+    df_raw = load_history_df()
+    if df_raw.empty:
+        safe_log("No data for bots table.")
+        return [], 0, 0
+
+    dfc = compute_deltas(df_raw, timeframe)  # Use timeframe for chart data range
+    all_dates = sorted(dfc["date"].unique(), reverse=True)  # Sort descending to get latest date first
+    logging.debug(f"All dates in database: {all_dates}")
+    today_date = datetime.now(tz=CDT).date().strftime("%Y-%m-%d")
+    latest = all_dates[0] if all_dates else today_date
+    if str(latest) != today_date:
+        logging.warning(f"Latest date {latest} is not today ({today_date}) in CDT. Forcing snapshot.")
+        try:
+            take_snapshot()
+            df_raw = load_history_df()
+            dfc = compute_deltas(df_raw, timeframe)
+            all_dates = sorted(dfc["date"].unique(), reverse=True)
+            latest = all_dates[0] if all_dates else today_date
+        except Exception as e:
+            logging.error(f"Error forcing snapshot: {e}")
+
+    totals = dfc.groupby("date", as_index=False).agg({"num_messages": "sum", "daily_messages": "sum"})
+    total_messages = int(totals.loc[totals["date"] == latest, "num_messages"].iloc[0]) if not totals.empty else 0
+    total_bots = len(dfc[dfc["date"] == latest]["bot_id"].unique()) if not dfc.empty else 0
+    logging.debug(f"Total messages for {latest}: {total_messages}, Total bots: {total_bots}")
+
+    today = dfc[dfc["date"] == latest].copy() if not dfc.empty else pd.DataFrame(columns=dfc.columns)
+    prev = all_dates[1] if len(all_dates) >= 2 else None
+    safe_log(f"Selected latest date: {latest}, previous date: {prev}")
+    if prev is not None:
+        prev_df = dfc[dfc["date"] == prev][["bot_id", "num_messages"]].rename(columns={"num_messages": "prev_num"})
+        today = today.merge(prev_df, on="bot_id", how="left")
+        today["prev_num"] = pd.to_numeric(today["prev_num"], errors="coerce").fillna(0).astype(int)
+        today["delta"] = (today["num_messages"] - today["prev_num"]).astype(int)
+    else:
+        today["delta"] = 0
+    logging.debug(f"Today's data: {today[['bot_id', 'num_messages', 'delta']].to_string()}")
+
+    if created_after and created_after != "All":
+        try:
+            if created_after == "7day":
+                created_after_date = pd.Timestamp(datetime.now().replace(tzinfo=None) - timedelta(days=7)).replace(tzinfo=pytz.UTC).tz_convert(CDT)
+            elif created_after == "30day":
+                created_after_date = pd.Timestamp(datetime.now().replace(tzinfo=None) - timedelta(days=30)).replace(tzinfo=pytz.UTC).tz_convert(CDT)
+            elif created_after == "current_month":
+                created_after_date = pd.Timestamp(datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=None)).replace(tzinfo=pytz.UTC).tz_convert(CDT)
+                logging.debug(f"Filtering bots created after {created_after_date} for current_month")
+            today = today[today["created_at"] >= created_after_date]
+            safe_log(f"Filtered bots created after {created_after_date}, {len(today)} bots remain")
+        except Exception as e:
+            logging.warning(f"Invalid created_after filter {created_after}: {e}")
+    else:
+        safe_log(f"Filtered bots created after All, {len(today)} bots remain")
+
+    if sort_by == "total":
+        today = today.sort_values("num_messages", ascending=sort_asc)
+    elif sort_by == "delta":
+        today = today.sort_values(["delta", "num_messages"], ascending=[sort_asc, sort_asc])
+    elif sort_by == "name":
+        today = today.sort_values("bot_name", ascending=sort_asc, key=lambda x: x.str.lower())
+    elif sort_by == "created_at":
+        today = today.sort_values("created_at", ascending=sort_asc)
+
+    bots = [
+        {
+            "bot_id": row["bot_id"],
+            "name": row["bot_name"],
+            "title": row["bot_title"],
+            "total": int(row["num_messages"]),
+            "total_fmt": fmt_commas(row["num_messages"]),
+            "delta": int(row.get("delta", 0)),
+            "delta_fmt": fmt_delta_commas(row.get("delta", 0)),
+            "created_at": row["created_at"].strftime("%Y-%m-%d %H:%M:%S %Z") if pd.notnull(row["created_at"]) else "",
+            "link": f"https://spicychat.ai/chat/{row['bot_id']}",
+            "avatar_url": f"{AVATAR_BASE_URL}/{row['avatar_url'].split('/')[-1]}" if row["avatar_url"] else f"{AVATAR_BASE_URL}/default-avatar.png"
+        } for _, row in today.iterrows()
+    ]
+    logging.debug(f"Bots data for rendering: {len(bots)} bots")
+
+    return bots, total_messages, total_bots
+
+def coerce_int(x):
+    if x is None:
+        return None
+    if isinstance(x, (int, float)):
+        return int(x)
+    m = re.search(r'\d+', str(x))
+    return int(m.group(0).replace(",", "")) if m else None
+
+def ensure_dirs():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    CHARTS_DIR.mkdir(parents=True, exist_ok=True)
+    STATIC_CHARTS_DIR.mkdir(parents=True, exist_ok=True)
+    if not os.path.exists(STATIC_CHARTS_DIR):
+        try:
+            os.symlink(CHARTS_DIR, STATIC_CHARTS_DIR, target_is_directory=True)
+            safe_log(f"Created symlink {STATIC_CHARTS_DIR} -> {CHARTS_DIR}")
+        except OSError as e:
+            logging.warning(f"Could not create symlink {STATIC_CHARTS_DIR}: {e}. Copying files instead.")
+            for chart in CHARTS_DIR.glob("*.png"):
+                shutil.copy(chart, STATIC_CHARTS_DIR / chart.name)
+                safe_log(f"Copied {chart} to {STATIC_CHARTS_DIR}")
+
+def clear_charts():
+    try:
+        for chart in CHARTS_DIR.glob("*.png"):
+            chart.unlink()
+            safe_log(f"Deleted chart {chart}")
+        for chart in STATIC_CHARTS_DIR.glob("*.png"):
+            chart.unlink()
+            safe_log(f"Deleted static chart {STATIC_CHARTS_DIR / chart.name}")
+    except Exception as e:
+        logging.warning(f"Error clearing charts: {e}")
+
+def pick(d, *keys, default=""):
+    for k in keys:
+        if isinstance(d, dict) and k in d and d[k] is not None:
+            return d[k]
+    return default
+
+def get_name(d): return pick(d, "name", "characterName", "displayName", default="")
+def get_title(d): return pick(d, "title", "botTitle", "description", default="")
+def get_id(d): return pick(d, "id", "slug", "uuid", "characterId", "_id", default="")
+def get_created_at(d): return pick(d, "createdAt", "created_at", default="")
+def get_avatar_url(d): return pick(d, "avatarUrl", "avatar_url", default="")
+
+def get_num_messages(d):
+    if "num_messages" in d and d["num_messages"] is not None:
+        return coerce_int(d["num_messages"])
+    for k in ("messageCount", "message_count", "messages", "interactions", "numMessages"):
+        if k in d and d[k] is not None:
+            return coerce_int(d[k])
+    for path in (("stats", "messageCount"), ("stats", "messages"),
+                 ("usage", "messages"), ("metrics", "messages"), ("analytics", "messages")):
+        cur, ok = d, True
+        for p in path:
+            if isinstance(cur, dict) and p in cur:
+                cur = cur[p]
+            else:
+                ok = False
+                break
+        if ok:
+            return coerce_int(cur)
+    return None
+
+def flatten_items(obj, out):
+    if isinstance(obj, dict):
+        if any(k in obj for k in ("name", "title", "characterName", "displayName", "botTitle")):
+            out.append(obj)
+        for v in obj.values():
+            flatten_items(v, out)
+    elif isinstance(obj, list):
+        for it in obj:
+            flatten_items(it, out)
 
 # ------------------ Token Capture ------------------
 def load_auth_credentials():
@@ -172,86 +335,16 @@ def capture_auth_credentials(wait_rounds=18):
     save_auth_credentials(bearer_token, guest_userid)
     return bearer_token, guest_userid
 
-# ------------------ Utils ------------------
-NUM_RE = re.compile(r"\d[\d,]*")
-
-def coerce_int(x):
-    if x is None:
-        return None
-    if isinstance(x, (int, float)):
-        return int(x)
-    m = NUM_RE.search(str(x))
-    return int(m.group(0).replace(",", "")) if m else None
-
-def ensure_dirs():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-    STATIC_CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-    if not os.path.exists(STATIC_CHARTS_DIR):
-        try:
-            os.symlink(CHARTS_DIR, STATIC_CHARTS_DIR, target_is_directory=True)
-            safe_log(f"Created symlink {STATIC_CHARTS_DIR} -> {CHARTS_DIR}")
-        except OSError as e:
-            logging.warning(f"Could not create symlink {STATIC_CHARTS_DIR}: {e}. Copying files instead.")
-            for chart in CHARTS_DIR.glob("*.png"):
-                shutil.copy(chart, STATIC_CHARTS_DIR / chart.name)
-                safe_log(f"Copied {chart} to {STATIC_CHARTS_DIR}")
-
-def clear_charts():
-    try:
-        for chart in CHARTS_DIR.glob("*.png"):
-            chart.unlink()
-            safe_log(f"Deleted chart {chart}")
-        for chart in STATIC_CHARTS_DIR.glob("*.png"):
-            chart.unlink()
-            safe_log(f"Deleted static chart {STATIC_CHARTS_DIR / chart.name}")
-    except Exception as e:
-        logging.warning(f"Error clearing charts: {e}")
-
-def pick(d, *keys, default=""):
-    for k in keys:
-        if isinstance(d, dict) and k in d and d[k] is not None:
-            return d[k]
-    return default
-
-def get_name(d): return pick(d, "name", "characterName", "displayName", default="")
-def get_title(d): return pick(d, "title", "botTitle", "description", default="")
-def get_id(d): return pick(d, "id", "slug", "uuid", "characterId", "_id", default="")
-def get_created_at(d): return pick(d, "createdAt", "created_at", default="")
-
-def get_num_messages(d):
-    if "num_messages" in d and d["num_messages"] is not None:
-        return coerce_int(d["num_messages"])
-    for k in ("messageCount", "message_count", "messages", "interactions", "numMessages"):
-        if k in d and d[k] is not None:
-            return coerce_int(d[k])
-    for path in (("stats", "messageCount"), ("stats", "messages"),
-                 ("usage", "messages"), ("metrics", "messages"), ("analytics", "messages")):
-        cur, ok = d, True
-        for p in path:
-            if isinstance(cur, dict) and p in cur:
-                cur = cur[p]
-            else:
-                ok = False
-                break
-        if ok:
-            return coerce_int(cur)
-    return None
-
-def flatten_items(obj, out):
-    if isinstance(obj, dict):
-        if any(k in obj for k in ("name", "title", "characterName", "displayName", "botTitle")):
-            out.append(obj)
-        for v in obj.values():
-            flatten_items(v, out)
-    elif isinstance(obj, list):
-        for it in obj:
-            flatten_items(it, out)
-
 # ------------------ Database ------------------
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
+        # Check if table exists and add avatar_url if missing
+        c.execute("PRAGMA table_info(bots)")
+        columns = {row[1] for row in c.fetchall()}
+        if "avatar_url" not in columns:
+            c.execute("ALTER TABLE bots ADD COLUMN avatar_url TEXT")
+            safe_log("Added avatar_url column to bots table")
         c.execute("""
             CREATE TABLE IF NOT EXISTS bots (
                 date TEXT,
@@ -261,10 +354,12 @@ def init_db():
                 num_messages INTEGER,
                 creator_user_id TEXT,
                 created_at TEXT,
+                avatar_url TEXT,
                 PRIMARY KEY (date, bot_id)
             )
         """)
         conn.commit()
+        safe_log(f"Initialized or updated SQLite database at {DATABASE}")
 
 # ------------------ Capture ------------------
 def capture_payloads(bearer_token, guest_userid, max_retries=3, delay=5):
@@ -332,11 +427,11 @@ def capture_payloads(bearer_token, guest_userid, max_retries=3, delay=5):
 def sanitize_rows(rows):
     return [{k: r.get(k, "") for k in ALLOWED_FIELDS} for r in rows]
 
-def take_snapshot(verbose=True):
+def take_snapshot(args, verbose=True):
     ensure_dirs()
     init_db()
-    stamp = datetime.now().strftime("%Y-%m-%d")
-    safe_log(f"Starting snapshot for {stamp}")
+    stamp = datetime.now(tz=CDT).strftime("%Y-%m-%d")
+    safe_log(f"Starting snapshot for {stamp} in CDT")
 
     try:
         bearer_token, guest_userid = capture_auth_credentials()
@@ -361,6 +456,9 @@ def take_snapshot(verbose=True):
         if num is None or not bot_id:
             logging.debug(f"Skipping item due to missing num_messages or bot_id: {d}")
             continue
+        created_at = get_created_at(d)
+        if created_at:
+            created_at = pd.Timestamp(created_at, tz="UTC").tz_convert(CDT).isoformat()
         row = {
             "date": stamp,
             "bot_id": bot_id,
@@ -368,7 +466,8 @@ def take_snapshot(verbose=True):
             "bot_title": get_title(d),
             "num_messages": num,
             "creator_user_id": str(d.get("creator_user_id") or ""),
-            "created_at": get_created_at(d)
+            "created_at": created_at,
+            "avatar_url": get_avatar_url(d)
         }
         if bot_id in seen:
             logging.debug(f"Skipping duplicate bot_id: {bot_id}")
@@ -384,21 +483,22 @@ def take_snapshot(verbose=True):
         c.execute("DELETE FROM bots WHERE date = ?", (stamp,))
         for row in rows_clean:
             c.execute("""
-                INSERT INTO bots (date, bot_id, bot_name, bot_title, num_messages, creator_user_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO bots (date, bot_id, bot_name, bot_title, num_messages, creator_user_id, created_at, avatar_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 row["date"], row["bot_id"], row["bot_name"],
                 row["bot_title"], row["num_messages"], row["creator_user_id"],
-                row["created_at"]
+                row["created_at"], row["avatar_url"]
             ))
         conn.commit()
 
     if verbose:
         safe_log(f"Snapshot saved for {len(rows_clean)} bots to {DATABASE}")
     
-    # Generate all charts in a single pass
-    updated_bot_ids = [row["bot_id"] for row in rows_clean]
-    build_charts(verbose=True, timeframes=["7day", "30day", "All"], updated_bot_ids=updated_bot_ids)
+    # Generate all charts in a single pass only if not skipped
+    if not args.no_charts:
+        updated_bot_ids = [row["bot_id"] for row in rows_clean]
+        build_charts(verbose=True, timeframes=["7day", "30day", "current_month", "All"], updated_bot_ids=updated_bot_ids)
     
     return DATABASE
 
@@ -426,16 +526,19 @@ def load_history_df() -> pd.DataFrame:
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
     df["num_messages"] = pd.to_numeric(df["num_messages"], errors="coerce").fillna(0).astype(int)
-    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+    if not df.empty and "created_at" in df.columns and pd.notnull(df["created_at"]).any():
+        df["created_at"] = pd.to_datetime(df["created_at"], utc=True).dt.tz_convert(CDT)
+    else:
+        df["created_at"] = pd.NaT
     safe_log(f"Loaded {len(df)} rows from database: {list(df.columns)}")
     logging.debug(f"DataFrame head: {df.head().to_string()}")
     logging.debug(f"Available dates: {sorted(df['date'].unique())}")
     return df
 
-def compute_deltas(df_raw: pd.DataFrame, timeframe="7day") -> pd.DataFrame:
+def compute_deltas(df_raw: pd.DataFrame, timeframe="All") -> pd.DataFrame:
     if df_raw.empty:
         safe_log("No data to compute deltas.")
-        return pd.DataFrame(columns=["date", "bot_id", "bot_name", "bot_title", "num_messages", "daily_messages", "created_at"])
+        return pd.DataFrame(columns=["date", "bot_id", "bot_name", "bot_title", "num_messages", "daily_messages", "created_at", "avatar_url"])
 
     # Compute deltas on full dataset
     df = df_raw.sort_values(["bot_id", "date"])
@@ -455,7 +558,7 @@ def compute_deltas(df_raw: pd.DataFrame, timeframe="7day") -> pd.DataFrame:
     df.loc[df["daily_messages"] < 0, "daily_messages"] = 0
     logging.debug(f"Computed DataFrame with deltas: {df[['bot_id', 'date', 'num_messages', 'daily_messages']].to_string()}")
 
-    # Apply timeframe filter after computing deltas
+    # Apply timeframe filter
     today = datetime.now().date()
     if timeframe == "7day":
         start_date = today - timedelta(days=7)
@@ -463,6 +566,19 @@ def compute_deltas(df_raw: pd.DataFrame, timeframe="7day") -> pd.DataFrame:
     elif timeframe == "30day":
         start_date = today - timedelta(days=30)
         df = df[df["date"] >= start_date]
+    elif timeframe == "current_month":
+        current_month_start = today.replace(day=1)
+        df = df[df["date"] >= current_month_start]
+        # Adjust delta for the first day of the month
+        for bot_id in df["bot_id"].unique():
+            bot_data = df[df["bot_id"] == bot_id]
+            first_day = bot_data["date"].min()
+            if first_day == current_month_start and not bot_data.empty:
+                prev_month_end = current_month_start - timedelta(days=1)
+                prev_data = df_raw[(df_raw["bot_id"] == bot_id) & (df_raw["date"] <= prev_month_end)]
+                prev_num = prev_data["num_messages"].max() if not prev_data.empty else 0
+                first_day_row = bot_data[bot_data["date"] == first_day].index[0]
+                df.loc[first_day_row, "daily_messages"] = int(bot_data.iloc[0]["num_messages"] - prev_num)
     # "All" timeframe uses all data, no filtering
 
     logging.debug(f"DataFrame after timeframe filter ({timeframe}): {df[['bot_id', 'date', 'num_messages', 'daily_messages']].to_string()}")
@@ -481,11 +597,7 @@ def plot_line(dates, values, title, out_png, ylabel="Messages"):
     logging.debug(f"Values: {list(values) if isinstance(dates, pd.Series) else values}")
 
     # Handle single data point case
-    if pd.Series(dates).empty or pd.Series(values).empty or len(dates) != len(values):
-        logging.error(f"Invalid data for plot {out_png}: {len(dates)} dates, {len(values)} values")
-        return
     if len(dates) == 1:
-        # Create a minimal plot for a single data point
         fig = plt.figure()
         try:
             plt.plot([0], values, marker='o', linestyle='none')
@@ -541,7 +653,7 @@ def plot_line(dates, values, title, out_png, ylabel="Messages"):
         plt.close(fig)
 
 # ------------------ Charts ------------------
-def build_charts(verbose=True, timeframes=["7day", "30day", "All"], updated_bot_ids=None):
+def build_charts(verbose=True, timeframes=["7day", "30day", "current_month", "All"], updated_bot_ids=None):
     ensure_dirs()
     df_raw = load_history_df()
     if df_raw.empty:
@@ -562,15 +674,15 @@ def build_charts(verbose=True, timeframes=["7day", "30day", "All"], updated_bot_
         totals = dfc.groupby("date", as_index=False).agg({"num_messages": "sum", "daily_messages": "sum"})
         logging.debug(f"Totals DataFrame for timeframe {timeframe}: {totals.to_string()}")
 
-        total_chart = CHARTS_DIR / f"total_messages_{timeframe}.png"
-        delta_chart = CHARTS_DIR / f"daily_changes_{timeframe}.png"
+        total_chart = CHARTS_DIR / f"total_messages_{timeframe.replace(' ', '_')}.png"
+        delta_chart = CHARTS_DIR / f"total_daily_changes_{timeframe.replace(' ', '_')}.png"
         if not total_chart.exists() or not delta_chart.exists() or (updated_bot_ids and df_raw[df_raw["bot_id"].isin(updated_bot_ids)]["date"].max() == datetime.now().date()):
             if not totals.empty and not totals["date"].empty and not totals["num_messages"].empty:
                 safe_log(f"Generating global charts with {len(totals)} data points for timeframe: {timeframe}")
                 plot_line(totals["date"], totals["num_messages"],
                           f"Total Messages ({timeframe})", total_chart)
                 plot_line(totals["date"], totals["daily_messages"],
-                          f"Daily Message Changes ({timeframe})", delta_chart, ylabel="Message Changes")
+                          f"Total Daily Message Changes ({timeframe})", delta_chart, ylabel="Message Changes")
             else:
                 logging.warning(f"No valid data for global charts with timeframe: {timeframe}")
 
@@ -627,14 +739,17 @@ def define_routes():
 
     @app.route("/")
     def index():
+        chart_sort_by = request.args.get("chart_sort_by", "7day")
+        chart_sort_asc = request.args.get("chart_sort_asc", "false") == "true"
         sort_by = request.args.get("sort_by", "delta")
         sort_asc = request.args.get("sort_asc", "false") == "true"
-        created_after = request.args.get("created_after", None)
-        timeframe = request.args.get("timeframe", "7day")  # Default to 7 days
-        safe_log(f"Index route: sort_by={sort_by}, sort_asc={sort_asc}, created_after={created_after}, timeframe={timeframe}")
+        created_after = request.args.get("created_after", "All")
+        timeframe = request.args.get("timeframe", "All")  # Default to All for bots
+        safe_log(f"Index route: chart_sort_by={chart_sort_by}, chart_sort_asc={chart_sort_asc}, sort_by={sort_by}, sort_asc={sort_asc}, created_after={created_after}, timeframe={timeframe}")
 
         last_7_days = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
         last_30_days = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        current_month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
 
         df_raw = load_history_df()
         if df_raw.empty:
@@ -648,13 +763,16 @@ def define_routes():
                 totals=[],
                 sort_by=sort_by,
                 sort_asc=sort_asc,
+                chart_sort_by=chart_sort_by,
+                chart_sort_asc=chart_sort_asc,
                 created_after=created_after,
                 last_7_days=last_7_days,
                 last_30_days=last_30_days,
+                current_month_start=current_month_start,
                 timeframe=timeframe
             )
 
-        dfc = compute_deltas(df_raw, timeframe)
+        dfc = compute_deltas(df_raw, chart_sort_by if chart_sort_by in ["7day", "30day", "current_month", "All"] else "7day")
         all_dates = sorted(dfc["date"].unique(), reverse=True)
         today_date = datetime.now().date().strftime("%Y-%m-%d")
         latest = all_dates[0] if all_dates else today_date
@@ -663,13 +781,17 @@ def define_routes():
             try:
                 take_snapshot()
                 df_raw = load_history_df()
-                dfc = compute_deltas(df_raw, timeframe)
+                dfc = compute_deltas(df_raw, chart_sort_by if chart_sort_by in ["7day", "30day", "current_month", "All"] else "7day")
                 all_dates = sorted(dfc["date"].unique(), reverse=True)
                 latest = all_dates[0] if all_dates else today_date
             except Exception as e:
                 logging.error(f"Error forcing snapshot: {e}")
 
         totals = dfc.groupby("date", as_index=False).agg({"num_messages": "sum", "daily_messages": "sum"})
+        if chart_sort_asc:
+            totals = totals.sort_values("date")
+        else:
+            totals = totals.sort_values("date", ascending=False)
         total_messages = int(totals.loc[totals["date"] == latest, "num_messages"].iloc[0]) if not totals.empty else 0
         total_bots = len(dfc[dfc["date"] == latest]["bot_id"].unique()) if not dfc.empty else 0
         totals_data = [
@@ -683,76 +805,38 @@ def define_routes():
         ]
         logging.debug(f"Totals data for rendering: {totals_data}")
 
-        today = dfc[dfc["date"] == latest].copy() if not dfc.empty else pd.DataFrame(columns=dfc.columns)
-        prev = all_dates[1] if len(all_dates) >= 2 else None
-        safe_log(f"Selected latest date: {latest}, previous date: {prev}")
-        if prev is not None:
-            prev_df = dfc[dfc["date"] == prev][["bot_id", "num_messages"]].rename(columns={"num_messages": "prev_num"})
-            today = today.merge(prev_df, on="bot_id", how="left")
-            today["prev_num"] = pd.to_numeric(today["prev_num"], errors="coerce").fillna(0).astype(int)
-            today["delta"] = (today["num_messages"] - today["prev_num"]).astype(int)
-        else:
-            today["delta"] = 0
-        logging.debug(f"Today's data: {today[['bot_id', 'num_messages', 'delta']].to_string()}")
-
-        if created_after:
-            try:
-                created_after_date = pd.to_datetime(created_after).date()
-                today = today[today["created_at"].dt.date >= created_after_date]
-                safe_log(f"Filtered bots created after {created_after_date}, {len(today)} bots remain")
-            except Exception as e:
-                logging.warning(f"Invalid created_after date {created_after}: {e}")
-
-        if sort_by == "total":
-            today = today.sort_values("num_messages", ascending=sort_asc)
-        elif sort_by == "delta":
-            today = today.sort_values(["delta", "num_messages"], ascending=[sort_asc, sort_asc])
-        elif sort_by == "name":
-            today = today.sort_values("bot_name", ascending=sort_asc, key=lambda x: x.str.lower())
-        elif sort_by == "created_at":
-            today = today.sort_values("created_at", ascending=sort_asc)
-
-        bots = [
-            {
-                "bot_id": row["bot_id"],
-                "name": row["bot_name"],
-                "title": row["bot_title"],
-                "total": int(row["num_messages"]),
-                "total_fmt": fmt_commas(row["num_messages"]),
-                "delta": int(row.get("delta", 0)),
-                "delta_fmt": fmt_delta_commas(row.get("delta", 0)),
-                "created_at": row["created_at"].strftime("%Y-%m-%d") if pd.notnull(row["created_at"]) else "",
-                "link": f"https://spicychat.ai/chat/{row['bot_id']}"
-            } for _, row in today.iterrows()
-        ]
-        logging.debug(f"Bots data for rendering: {len(bots)} bots")
-
         try:
-            safe_log(f"Rendering index for {latest} with {len(bots)} bots")
-            return render_template(
-                "index.html",
-                latest=str(latest),
-                total_messages=fmt_commas(total_messages),
-                total_bots=fmt_commas(total_bots),
-                totals=totals_data,
-                bots=bots,
-                sort_by=sort_by,
-                sort_asc=sort_asc,
-                created_after=created_after,
-                last_7_days=last_7_days,
-                last_30_days=last_30_days,
-                timeframe=timeframe
-            )
+            bots, total_messages, total_bots = get_bots_data(sort_by, sort_asc, created_after, timeframe)
+            logging.debug(f"Retrieved {len(bots)} bots, total_messages={total_messages}, total_bots={total_bots}")
         except Exception as e:
-            logging.error(f"Error rendering index template: {e}")
-            raise
+            logging.error(f"Error in get_bots_data: {e}")
+            bots, total_messages, total_bots = [], 0, 0
+
+        safe_log(f"Rendering index for {latest} with {len(bots)} bots")
+        return render_template(
+            "index.html",
+            latest=str(latest),
+            total_messages=fmt_commas(total_messages),
+            total_bots=fmt_commas(total_bots),
+            totals=totals_data,
+            bots=bots,
+            sort_by=sort_by,
+            sort_asc=sort_asc,
+            chart_sort_by=chart_sort_by,
+            chart_sort_asc=chart_sort_asc,
+            created_after=created_after,
+            last_7_days=last_7_days,
+            last_30_days=last_30_days,
+            current_month_start=current_month_start,
+            timeframe=timeframe
+        )
 
     @app.route("/bots")
     def bots_table():
         sort_by = request.args.get("sort_by", "delta")
         sort_asc = request.args.get("sort_asc", "false") == "true"
-        created_after = request.args.get("created_after", None)
-        timeframe = request.args.get("timeframe", "7day")
+        created_after = request.args.get("created_after", "All")
+        timeframe = request.args.get("timeframe", "All")  # Not used for bot table, kept for consistency
         safe_log(f"Bots table route: sort_by={sort_by}, sort_asc={sort_asc}, created_after={created_after}, timeframe={timeframe}")
 
         bots, _, _ = get_bots_data(sort_by, sort_asc, created_after, timeframe)
@@ -764,11 +848,11 @@ def define_routes():
 
     @app.route("/bot/<bot_id>")
     def bot_detail(bot_id):
-        timeframe = "All"  # Always use "All" for bot detail pages
+        timeframe = "All"  # Use "All" to include all historical data
         df_raw = load_history_df()
         dfc = compute_deltas(df_raw, timeframe)
 
-        bot = dfc[dfc["bot_id"] == bot_id].sort_values("date")
+        bot = dfc[dfc["bot_id"] == bot_id]
         if bot.empty:
             logging.warning(f"Bot {bot_id} not found in database")
             return render_template("bot.html", bot=None, history=[], timeframe=timeframe)
@@ -793,36 +877,48 @@ def define_routes():
             "total_fmt": fmt_commas(row["num_messages"]),
             "delta": int(row.get("delta", 0)),
             "delta_fmt": fmt_delta_commas(row.get("delta", 0)),
-            "created_at": row["created_at"].strftime("%Y-%m-%d") if pd.notnull(row["created_at"]) else ""
+            "created_at": row["created_at"].strftime("%Y-%m-%d") if pd.notnull(row["created_at"]) else "",
+            "link": f"https://spicychat.ai/chat/{row['bot_id']}",
+            "avatar_url": f"{AVATAR_BASE_URL}/{row['avatar_url'].split('/')[-1]}" if row["avatar_url"] else f"{AVATAR_BASE_URL}/default-avatar.png"
         }
+        logging.debug(f"Bot data avatar_url: {bot_data['avatar_url']}")
 
+        # Use the delta-computed DataFrame and sort by date descending explicitly
+        history_df = dfc[dfc["bot_id"] == bot_id].sort_values("date", ascending=False)
         history = [
             {
                 "date": str(row["date"]),
                 "total": int(row["num_messages"]),
                 "total_fmt": fmt_commas(row["num_messages"]),
-                "daily": int(row["daily_messages"]),
-                "daily_fmt": fmt_delta_commas(row["daily_messages"]),
+                "daily": int(row["daily_messages"]) if "daily_messages" in row else 0,
+                "daily_fmt": fmt_delta_commas(row["daily_messages"]) if "daily_messages" in row else "+0",
                 "created_at": row["created_at"].strftime("%Y-%m-%d") if pd.notnull(row["created_at"]) else ""
-            } for _, row in bot.iterrows()
+            } for _, row in history_df.iterrows()
         ]
 
-        safe_log(f"Rendering bot detail for {bot_id}: {bot_data['name']}")
+        safe_log(f"Rendering bot detail for {bot_id}: {bot_data['name']} with {len(history)} history entries")
         return render_template("bot.html", bot=bot_data, history=history, timeframe=timeframe)
 
     @app.route("/take-snapshot", methods=["POST"])
     def take_snapshot_route():
         safe_log("Received request to take snapshot")
         try:
-            take_snapshot(verbose=True)
+            # Create a dummy args object with default values
+            class DummyArgs:
+                def __init__(self):
+                    self.no_snapshot = False
+                    self.no_charts = False
+                    self.port = 5000
+            dummy_args = DummyArgs()
+            take_snapshot(dummy_args, verbose=True)
             safe_log("Snapshot and charts updated successfully")
             sort_by = request.args.get("sort_by", "delta")
             sort_asc = request.args.get("sort_asc", "false")
-            created_after = request.args.get("created_after", None)
-            timeframe = request.args.get("timeframe", "7day")
-            params = {"sort_by": sort_by, "sort_asc": sort_asc, "timeframe": timeframe}
-            if created_after:
-                params["created_after"] = created_after
+            created_after = request.args.get("created_after", "All")
+            timeframe = request.args.get("timeframe", "All")
+            chart_sort_by = request.args.get("chart_sort_by", "7day")
+            chart_sort_asc = request.args.get("chart_sort_asc", "false")
+            params = {"sort_by": sort_by, "sort_asc": sort_asc, "timeframe": timeframe, "chart_sort_by": chart_sort_by, "chart_sort_asc": chart_sort_asc, "created_after": created_after}
             return redirect(url_for("index", **params))
         except Exception as e:
             logging.error(f"Error in take_snapshot_route: {e}")
@@ -833,21 +929,33 @@ def define_routes():
 # ------------------ CLI ------------------
 def main():
     setup_logging()
+    # Log script content hash for verification
+    with open(__file__, 'rb') as f:
+        script_hash = hashlib.md5(f.read()).hexdigest()
+    safe_log(f"Script hash: {script_hash}")
+
     p = argparse.ArgumentParser(description="SpicyChat analytics with SQLite database and Flask dashboard")
-    p.add_argument("--no-snapshot", action="store_true", help="Skip snapshot")
-    p.add_argument("--no-charts", action="store_true", help="Skip chart generation")
+    p.add_argument("--no_snapshot", action="store_true", help="Skip snapshot")
+    p.add_argument("--no_charts", action="store_true", help="Skip chart generation")
     p.add_argument("--port", type=int, default=5000, help="Flask server port (default 5000)")
     args = p.parse_args()
 
+    safe_log(f"Command-line args: no_snapshot={args.no_snapshot}, no_charts={args.no_charts}, port={args.port}")
+    # Verify function availability
+    try:
+        get_bots_data
+        safe_log("get_bots_data function is defined")
+    except NameError:
+        safe_log("get_bots_data function is NOT defined - check script structure")
     define_routes()  # Define routes only once
 
     if not args.no_snapshot:
         try:
-            take_snapshot()
+            take_snapshot(args)
         except RuntimeError as e:
             logging.error(f"Snapshot failed: {e}. Continuing to start server.")
     if not args.no_charts:
-        build_charts(timeframes=["7day", "30day", "All"])  # Generate charts for all timeframes
+        build_charts(timeframes=["7day", "30day", "current_month", "All"])  # Generate charts for all timeframes
 
     safe_log(f"Starting Flask server on http://localhost:{args.port}")
     app.run(host="0.0.0.0", port=args.port, debug=False)
