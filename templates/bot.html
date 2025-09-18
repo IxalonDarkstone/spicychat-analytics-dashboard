@@ -1,139 +1,119 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bot Details - {{ bot.name }}</title>
+    <title>{{ bot.name }} - Bot Details</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body style="background-color: #1e1e1e; color: #e0e0e0; margin: 0; padding: 0;">
+    <div class="container" style="background-color: #2a2a2a; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">
+        <header class="header">
+            <h1>{{ bot.name }} Details</h1>
+            <a href="{{ bot.link }}" target="_blank" class="action-button">Visit Bot Page</a>
+            <a href="{{ url_for('index') }}" class="action-button">Back to Dashboard</a>
+        </header>
+        {% if bot %}
+        <div class="chart-container">
+            <img src="{{ url_for('static', filename='charts/bot_' + bot.bot_id + '_total.png') }}" alt="{{ bot.name }} Total Messages Chart" class="chart">
+            <img src="{{ url_for('static', filename='charts/bot_' + bot.bot_id + '_delta.png') }}" alt="{{ bot.name }} Daily Changes Chart" class="chart">
+        </div>
+        <div class="bot-content" style="display: flex; gap: 20px; margin-top: 20px;">
+            <div class="avatar-column">
+                <img src="{{ bot.avatar_url }}" alt="{{ bot.name }} Avatar" class="large-avatar" onerror="this.src='{{ AVATAR_BASE_URL }}/default-avatar.png'; console.log('Failed to load avatar, using default: ' + this.src);">
+            </div>
+            <div class="history-chart-container">
+                <div class="bot-detail">
+                    <h2>{{ bot.title }}</h2>
+                    <p>Total Messages: {{ bot.total_fmt }}</p>
+                    <p>Delta: {{ bot.delta_fmt }}</p>
+                    <h3>Message History</h3>
+                    <table class="totals-table" id="historyTable">
+                        <thead>
+                            <tr>
+                                <th data-sort="date" onclick="sortTable(this)">Date</th>
+                                <th data-sort="total" onclick="sortTable(this)">Total Messages</th>
+                                <th data-sort="daily" onclick="sortTable(this)">Daily Change</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in history %}
+                            <tr>
+                                <td>{{ entry.date }}</td>
+                                <td>{{ entry.total_fmt }}</td>
+                                <td>{{ entry.daily_fmt }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <p>Bot not found.</p>
+        {% endif %}
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const totalsTable = document.getElementById('totalsTable');
+            if (totalsTable) {
+                const isTotalsCollapsed = sessionStorage.getItem('totalsCollapsed') === 'true';
+                totalsTable.style.display = isTotalsCollapsed ? 'none' : 'table';
+            }
+    
+            let sortDirection = {};
+            function sortTable(th) {
+                const table = document.getElementById('historyTable');
+                const tbody = table.getElementsByTagName('tbody')[0];
+                const rows = Array.from(tbody.getElementsByTagName('tr'));
+                const index = th.cellIndex;
+                const sortKey = th.getAttribute('data-sort');
+                const isNumeric = sortKey === 'total' || sortKey === 'daily';
+    
+                // Toggle sort direction
+                sortDirection[sortKey] = !sortDirection[sortKey];
+                const direction = sortDirection[sortKey] ? 1 : -1;
+    
+                rows.sort((a, b) => {
+                    let aValue = a.cells[index].textContent;
+                    let bValue = b.cells[index].textContent;
+                    if (isNumeric) {
+                        aValue = parseInt(aValue.replace(/[^0-9.-]+/g, '')) || 0;
+                        bValue = parseInt(bValue.replace(/[^0-9.-]+/g, '')) || 0;
+                    } else {
+                        aValue = new Date(aValue);
+                        bValue = new Date(bValue);
+                    }
+                    return direction * (aValue < bValue ? -1 : aValue > bValue ? 1 : 0);
+                });
+    
+                // Re-append sorted rows
+                while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+                rows.forEach(row => tbody.appendChild(row));
+    
+                // Update all th elements to remove sorting indicators, then set the clicked one
+                const headers = table.getElementsByTagName('th');
+                for (let header of headers) {
+                    header.classList.remove('sorted-asc', 'sorted-desc');
+                }
+                th.classList.add(sortDirection[sortKey] ? 'sorted-asc' : 'sorted-desc');
+            }
+        });
+    </script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #1e1e1e;
-            color: #e0e0e0;
-        }
-        h1, h2 {
-            color: #ffffff;
-        }
-        p {
-            color: #b0b0b0;
-            font-size: 16px;
-        }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-top: 20px;
-            background-color: #2a2a2a;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-        th, td {
-            border: 1px solid #444;
-            padding: 12px;
-            text-align: left;
-        }
-        th {
+        .totals-table th {
+            cursor: pointer;
             background-color: #3c6e9f;
-            color: #ffffff;
         }
-        tr:nth-child(even) {
-            background-color: #333333;
+        .totals-table th:hover {
+            background-color: #355e8a;
         }
-        a {
-            color: #64b5f6;
-            text-decoration: none;
+        .totals-table th.sorted-asc::after {
+            content: " ↑";
         }
-        a:hover {
-            text-decoration: underline;
-        }
-        .charts {
-            margin-top: 20px;
-            display: flex;
-            gap: 20px;
-        }
-        .charts img {
-            max-width: 45%;
-            height: auto;
-            border: 1px solid #444;
-            border-radius: 4px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            background-color: #333333;
+        .totals-table th.sorted-desc::after {
+            content: " ↓";
         }
     </style>
-</head>
-<body>
-    <h1>Bot Details - {{ bot.name }}</h1>
-    <p><a href="/">Back to Dashboard</a></p>
-    {% if bot %}
-        <p><strong>Title:</strong> {{ bot.title }}</p>
-        <p><strong>Total Messages:</strong> {{ bot.total_fmt }}</p>
-        <p><strong>Daily Change:</strong> {{ bot.delta_fmt }}</p>
-        <p><strong>Created At:</strong> {{ bot.created_at }}</p>
-        <p><strong>Link:</strong> <a href="{{ bot.link }}" target="_blank">🔗</a></p>
-        
-        <div class="charts">
-            <img src="/static/charts/bot_{{ bot.bot_id }}_total.png" alt="{{ bot.name }} Total Messages">
-            <img src="/static/charts/bot_{{ bot.bot_id }}_delta.png" alt="{{ bot.name }} Daily Message Changes">
-        </div>
-
-        <h2>Message History</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Total Messages</th>
-                    <th>Daily Change</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for h in history %}
-                <tr>
-                    <td>{{ h.date }}</td>
-                    <td>{{ h.total_fmt }}</td>
-                    <td>{{ h.daily_fmt }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>Bot not found.</p>
-    {% endif %}
 </body>
 </html>
