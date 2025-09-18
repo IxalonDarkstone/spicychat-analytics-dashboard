@@ -14,7 +14,7 @@ This repository contains the SpicyChat Analytics Dashboard, a tool to track and 
    - Clone this repository to your local machine or download the files manually:
      ```
      git clone https://github.com/IxalonDarkstone/spicychat-analytics-dashboard.git
-     cd spicychat-analytics
+     cd spicychat-analytics-dashboard
      ```
 
 2. **Run the Setup Script**
@@ -50,7 +50,7 @@ This repository contains the SpicyChat Analytics Dashboard, a tool to track and 
 After setup completes, the directory structure will look like this:
 
 ```
-spicychat-analytics/
+spicychat-analytics-dashboard/
 ├── spicychat_analytics.py
 ├── setup_spicychat.py
 ├── data/
