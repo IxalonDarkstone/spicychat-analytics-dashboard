@@ -1,108 +1,41 @@
 import os
 import sys
-import subprocess
+import shutil
 import logging
 from pathlib import Path
+import sqlite3
+import subprocess
 
-# ------------------ Config ------------------
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-LOGS_DIR = BASE_DIR / "logs"
-DATABASE = DATA_DIR / "spicychat.db"
-CHARTS_DIR = BASE_DIR / "charts"
-STATIC_DIR = BASE_DIR / "static"
-STATIC_CHARTS_DIR = STATIC_DIR / "charts"
-TEMPLATES_DIR = BASE_DIR / "templates"
-
-# ------------------ Logging ------------------
-def setup_logging():
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler(LOGS_DIR / "setup_spicychat.log"),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-
-# ------------------ Setup Functions ------------------
-def check_python_version():
-    required_version = (3, 8)
-    current_version = sys.version_info[:2]
-    if current_version < required_version:
-        logging.error(f"Python {required_version[0]}.{required_version[1]} or higher is required. Found {current_version[0]}.{current_version[1]}.")
-        sys.exit(1)
-    logging.info(f"Python version {current_version[0]}.{current_version[1]} is compatible.")
-
-def install_dependencies():
-    dependencies = [
-        "flask>=2.0.0",
-        "requests>=2.26.0",
-        "pandas>=1.3.0",
-        "numpy>=1.21.0",
-        "matplotlib>=3.4.0",
-        "scipy>=1.7.0",
-        "playwright>=1.28.0"
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("logs/setup.log", encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
     ]
-    logging.info("Installing dependencies...")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
-        for dep in dependencies:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
-        logging.info("All dependencies installed successfully.")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to install dependencies: {e}")
-        sys.exit(1)
+)
 
-def install_playwright():
-    logging.info("Installing Playwright browsers...")
+def safe_log(message):
+    """Log a message, handling unencodable characters."""
     try:
-        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
-        logging.info("Playwright browsers installed successfully.")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to install Playwright browsers: {e}")
-        sys.exit(1)
+        logging.info(message)
+    except UnicodeEncodeError:
+        logging.info(message.encode('ascii', errors='replace').decode('ascii'))
 
-def create_directories():
-    logging.info("Creating required directories...")
-    try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        LOGS_DIR.mkdir(parents=True, exist_ok=True)
-        CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-        STATIC_DIR.mkdir(parents=True, exist_ok=True)
-        STATIC_CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-        TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-        if not os.path.exists(STATIC_CHARTS_DIR):
-            try:
-                os.symlink(CHARTS_DIR, STATIC_CHARTS_DIR, target_is_directory=True)
-                logging.info(f"Created symlink {STATIC_CHARTS_DIR} -> {CHARTS_DIR}")
-            except OSError as e:
-                logging.warning(f"Could not create symlink {STATIC_CHARTS_DIR}: {e}. Using directory copy instead.")
-                STATIC_CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-        logging.info("All directories created successfully.")
-    except Exception as e:
-        logging.error(f"Failed to create directories: {e}")
-        sys.exit(1)
-
-def verify_files():
-    required_files = [
-        BASE_DIR / "spicychat_analytics.py",
-        TEMPLATES_DIR / "index.html",
-        TEMPLATES_DIR / "bots_table.html",
-        TEMPLATES_DIR / "bot.html"
-    ]
-    logging.info("Verifying required files...")
-    for file in required_files:
-        if not file.exists():
-            logging.error(f"Required file {file} is missing.")
-            sys.exit(1)
-    logging.info("All required files are present.")
+def setup_directories():
+    """Create necessary directories."""
+    directories = ["data", "logs", "charts", "static/charts"]
+    for dir_name in directories:
+        dir_path = Path(dir_name)
+        dir_path.mkdir(parents=True, exist_ok=True)
+        safe_log(f"Created directory: {dir_path}")
 
 def initialize_database():
-    logging.info("Initializing SQLite database...")
+    """Initialize the SQLite database with the bots table."""
+    database_path = Path("data/spicychat.db")
     try:
-        with sqlite3.connect(DATABASE) as conn:
+        with sqlite3.connect(database_path) as conn:
             c = conn.cursor()
             c.execute("""
                 CREATE TABLE IF NOT EXISTS bots (
@@ -113,29 +46,45 @@ def initialize_database():
                     num_messages INTEGER,
                     creator_user_id TEXT,
                     created_at TEXT,
+                    avatar_url TEXT,
                     PRIMARY KEY (date, bot_id)
                 )
             """)
             conn.commit()
-        logging.info(f"Database initialized at {DATABASE}")
+            safe_log(f"Initialized database at {database_path}")
     except sqlite3.Error as e:
-        logging.error(f"Failed to initialize database: {e}")
-        sys.exit(1)
+        safe_log(f"Database initialization error: {e}")
+        raise
+
+def install_dependencies():
+    """Install required Python packages."""
+    required_packages = ["flask", "pandas", "numpy", "matplotlib", "playwright", "requests", "pytz"]
+    try:
+        for package in required_packages:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            safe_log(f"Installed package: {package}")
+    except subprocess.CalledProcessError as e:
+        safe_log(f"Error installing dependencies: {e}")
+        raise
 
 def main():
-    setup_logging()
-    logging.info("Starting setup for SpicyChat Analytics Dashboard...")
+    safe_log("Starting SpicyChat analytics setup...")
     
-    check_python_version()
-    create_directories()
-    verify_files()
-    install_dependencies()
-    install_playwright()
+    # Create directories
+    setup_directories()
+    
+    # Initialize database
     initialize_database()
     
-    logging.info("Setup completed successfully.")
-    logging.info("To run the dashboard, execute: python spicychat_analytics.py")
-    logging.info("The dashboard will be available at http://localhost:5000")
+    # Install dependencies
+    install_dependencies()
+    
+    safe_log("Setup completed. Please copy spicychat_analytics.py, templates/, and static/style.css from your existing installation.")
+    safe_log("Run 'python spicychat_analytics.py' to start the application.")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        safe_log(f"Setup failed: {e}")
+        sys.exit(1)

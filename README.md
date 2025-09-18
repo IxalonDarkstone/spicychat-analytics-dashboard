@@ -4,21 +4,18 @@ This repository contains the SpicyChat Analytics Dashboard, a tool to track and 
 
 ## Prerequisites
 
-- Python 3.8 or higher (`python --version` to check)
+- Python 3.11or later (`python --version` to check)
 - Internet connection for installing dependencies and accessing the SpicyChat API
 - Google account for SpicyChat login
 
 ## Setup Instructions
 
 1. **Create Project Directory**
-   - Create a folder named `spicychat-analytics`.
-   - Place the following files in the folder:
-     - `spicychat_analytics.py`
-     - `setup_spicychat.py`
-   - Create a `templates` subfolder inside `spicychat-analytics` and place these files in it:
-     - `templates/index.html`
-     - `templates/bots_table.html`
-     - `templates/bot.html`
+Clone this repository to your local machine or download the files manually:
+```
+git clone <repository-url>
+cd spicychat-analytics
+```
 
 2. **Run the Setup Script**
    - Open a terminal (Command Prompt on Windows, Terminal on macOS/Linux) and navigate to the `spicychat-analytics` folder:
@@ -67,6 +64,7 @@ spicychat-analytics/
 │   ├── setup_spicychat.log
 ├── charts/
 ├── static/
+│   ├── styles.css
 │   ├── charts/
 ├── templates/
 │   ├── index.html
