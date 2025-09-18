@@ -78,7 +78,8 @@ spicychat-analytics-dashboard/
 - **Persistent Totals History**: Collapsible history table, expanded by default, persists state during the session.
 - **Authentication**: Uses `auth_credentials.json` to store credentials, with browser-based login for initial setup or expired tokens.
 - **Additional Features**: Correct daily deltas, dark theme, total bots display, snapshot button.
-- **Standalone Date Removal Script**: If SpicyChat ever goes down and no messages are received (eg. this happened on 9/16/25) you can use the clean_database_data.py file in the main directory to remove a specific date. I recommend taking a backup of the database located at data\spicychat.db before running this script. Use the script below to remove a specific date (the example shows what I ran on 9/17 to remove data from 9/16) from the database.
+- **Opening SpicyChat Bots**: You can open any specific bot in a new tab by clicking the avatar image on the main page or the Visit Bot Bage button on the Bot Details page.
+- **Standalone Date Removal Script**: If SpicyChat ever goes down and no messages are received (eg. this happened on 9/16/25) you can use the clean_database_data.py file in the main directory to remove a specific date. I recommend taking a backup of the database located at data\spicychat.db before running this script. Use the syntax below to remove a specific date (the example shows what I ran on 9/17 to remove data from 9/16) from the database.
 ```
 python clean_database_data.py 09/16/2025
 ```
