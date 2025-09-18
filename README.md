@@ -79,6 +79,16 @@ spicychat-analytics/
 - **Authentication**: Uses `auth_credentials.json` to store credentials, with browser-based login for initial setup or expired tokens.
 - **Additional Features**: Correct daily deltas, dark theme, total bots display, snapshot button.
 
+## Screenshots
+
+- **Main Page with Totals History**
+<img src="images/deltatracking.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
+- **Main Page with Totals History Hidden and Bot Cards**
+<img src="images/mainlayout.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
+- **Bot Details Page**
+<img src="images/botdetails.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
+
+
 ## Troubleshooting
 
 - **Setup Issues**: If the setup script fails, ensure Python 3.11+ is installed (`python --version`) and you have internet access.
