@@ -11,17 +11,13 @@ This repository contains the SpicyChat Analytics Dashboard, a tool to track and 
 ## Setup Instructions
 
 1. **Create Project Directory**
-Clone this repository to your local machine or download the files manually:
-```
-git clone <repository-url>
-cd spicychat-analytics
-```
+   - Clone this repository to your local machine or download the files manually:
+     ```
+     git clone https://github.com/IxalonDarkstone/spicychat-analytics-dashboard.git
+     cd spicychat-analytics
+     ```
 
 2. **Run the Setup Script**
-   - Open a terminal (Command Prompt on Windows, Terminal on macOS/Linux) and navigate to the `spicychat-analytics` folder:
-     ```
-     cd path/to/spicychat-analytics
-     ```
    - Run the setup script to install dependencies and create necessary directories:
      ```
      python setup_spicychat.py
@@ -37,9 +33,10 @@ cd spicychat-analytics
      ```
      python spicychat_analytics.py
      ```
-   - The dashboard will start and be accessible at `http://localhost:5000`.
    - An initial snapshot will be taken and you will see charts generated for totals plus each bot.
    - You will need to authenticate the first time you run which will prompt you to login to SpicyChat. You must use the email authentication to receive a code to login as the other methods will not work for the playwright browser. Just enter your email address associated with your SC account then grab the 6 digit code from your email and type it in to authenticate. Navigate to "My Chatbots," and press Enter in the terminal to capture credentials. This captures your auth token and user id to allow the script to pull your bots (Note: This will pull all bots under my-chatbots, even private ones). All of the downloaded data is stored locally. Feel free to browse through the code in github and you will see this is a local only dashboard. You will likely have to auth every 24 hours as SC rotates these values. If they ever have an API approach then I will incorporate that for a more seamless experience.
+   - The dashboard will start and be accessible at `http://localhost:5000`.
+
 
 4. **Take Subsequent Snapshots**
    - Open a web browser and go to `http://localhost:5000`.
@@ -74,17 +71,17 @@ spicychat-analytics/
 
 ## Features
 
-- **Main Page Charts**: Visualize total messages and daily changes for 7-day, 30-day, and All timeframes.
-- **Bot Detail Pages**: View individual bot metrics and charts (All timeframe).
-- **Bot Table Sorting**: Sort by Link, Name, Title, Total Messages, Daily Δ, or Created At.
+- **Main Page Charts**: Visualize total messages and daily changes for 7-day, 30-day, Current Month, and All timeframes. 7 Days Default.
+- **Bot Cards/Detail Pages**: View bot cards for each of your bots with avatars and individual bot metrics and charts using the Details button on the card (All timeframe).
+- **Bot Table Sorting**: Sort by Delta Δ, Total, Created At, or Name, Ascending or Descending. Default is Delta Δ Descending.
+- **Creation Timeframe Scoping**: Choose the Created in: dropdown to see only bots created during the selected timeframe (All, 7 Days, 30 Days, Current Month). Defaults to All.
 - **Persistent Totals History**: Collapsible history table, expanded by default, persists state during the session.
 - **Authentication**: Uses `auth_credentials.json` to store credentials, with browser-based login for initial setup or expired tokens.
-- **Filters**: Filter bots by creation date and timeframe via dropdowns.
 - **Additional Features**: Correct daily deltas, dark theme, total bots display, snapshot button.
 
 ## Troubleshooting
 
-- **Setup Issues**: If the setup script fails, ensure Python 3.8+ is installed (`python --version`) and you have internet access (I use and recommend 3.11.x).
+- **Setup Issues**: If the setup script fails, ensure Python 3.11+ is installed (`python --version`) and you have internet access.
 - **Log Files**: Check `logs/setup_spicychat.log` for setup errors or `logs/spicychat.log` for runtime issues.
 - **Snapshot Issues**: Ensure you complete the Google Sign-In and navigate to "My Chatbots" before pressing Enter in the terminal.
 - **Chart Issues**: Verify `charts/` and `static/charts/` are writable. Test without chart generation to isolate issues:
