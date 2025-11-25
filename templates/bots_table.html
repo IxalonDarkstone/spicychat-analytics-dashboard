@@ -1,6 +1,12 @@
 <div class="bot-grid">
     {% for bot in bots %}
     <div class="bot-card">
+        {% if bot.rank and bot.rank_tier %}
+        <div class="bot-ranking {{ bot.rank_tier }}">
+            #{{ bot.rank }}
+        </div>
+        {% endif %}
+
         <a href="{{ bot.link }}" target="_blank">
             <img src="{{ bot.avatar_url }}" alt="{{ bot.name }} Avatar" class="bot-image">
         </a>
@@ -13,6 +19,7 @@
     </div>
     {% endfor %}
 </div>
+
 <style>
     body {
         font-family: Arial, sans-serif;
@@ -27,6 +34,7 @@
         margin-top: 20px;
     }
     .bot-card {
+        position: relative; /* NEW: for rank badge */
         background-color: #2a2a2a;
         border: 1px solid #444;
         border-radius: 8px;
@@ -73,5 +81,24 @@
     }
     .details-link:hover {
         background-color: #355e8a;
+    }
+
+    /* NEW: rank tag styles */
+    .bot-ranking {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+        color: #ffffff;
+        background-color: rgba(0, 0, 0, 0.7); /* fallback */
+    }
+    .bot-ranking.top240 {
+        background-color: #b22222; /* red */
+    }
+    .bot-ranking.top480 {
+        background-color: #ff8c00; /* orange */
     }
 </style>

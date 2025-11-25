@@ -1,116 +1,251 @@
 # SpicyChat Analytics Dashboard
 
-This repository contains the SpicyChat Analytics Dashboard, a tool to track and visualize chatbot metrics from SpicyChat.AI. It provides a web interface to display bot statistics, including total messages, daily changes, and historical data, with charts for overall trends and individual bots.
+Welcome to the SpicyChat Analytics Dashboard — a local, private, fully-featured tool for tracking how your SpicyChat bots are performing over time.  
 
-## Prerequisites
+If you’ve ever wished SpicyChat had a real analytics page… this dashboard is exactly that. It pulls all your bot stats, generates charts, tracks daily growth, shows trending data, and gives you a clean, modern interface to explore everything.
 
-- Python 3.11or later (`python --version` to check)
-- Internet connection for installing dependencies and accessing the SpicyChat API
-- Google account for SpicyChat login
+Everything runs 100% locally on your machine. Nothing is uploaded or shared anywhere.
 
-## Setup Instructions
+---
 
-1. **Create Project Directory**
-   - Clone this repository to your local machine or download the files manually:
-     ```
-     git clone https://github.com/IxalonDarkstone/spicychat-analytics-dashboard.git
-     cd spicychat-analytics-dashboard
-     ```
+# 🧰 What This Dashboard Does
 
-2. **Run the Setup Script**
-   - Run the setup script to install dependencies and create necessary directories:
-     ```
-     python setup_spicychat.py
-     ```
-   - This will:
-     - Install required Python packages (`flask`, `requests`, `pandas`, `numpy`, `matplotlib`, `scipy`, `playwright`).
-     - Install the Playwright Chromium browser.
-     - Create directories (`data`, `logs`, `charts`, `static/charts`, `templates`).
-     - Initialize the SQLite database (`data/spicychat.db`).
+Here’s the fun part — this thing has grown into a *real* analytics suite:
 
-3. **Start the Dashboard**
-   - In the same terminal, run the dashboard:
-     ```
-     python spicychat_analytics.py
-     ```
-   - An initial snapshot will be taken and you will see charts generated for totals plus each bot.
-   - You will need to authenticate the first time you run which will prompt you to login to SpicyChat. You must use the email authentication to receive a code to login as the other methods will not work for the playwright browser. Just enter your email address associated with your SC account then grab the 6 digit code from your email and type it in to authenticate. Navigate to "My Chatbots," and press Enter in the terminal to capture credentials. This captures your auth token and user id to allow the script to pull your bots (Note: This will pull all bots under my-chatbots, even private ones). All of the downloaded data is stored locally. Feel free to browse through the code in github and you will see this is a local only dashboard. You will likely have to auth every 24 hours as SC rotates these values. If they ever have an API approach then I will incorporate that for a more seamless experience.
-   - The dashboard will start and be accessible at `http://localhost:5000`.
+### 📊 **Main Dashboard**
+- Total messages & daily deltas
+- Timeframe charts (7 days, 30 days, current month, all time)
+- Dark-mode, smooth gradient charts
+- Quick snapshot button
+- Creation date filtering
 
+### 🧩 **Bot Cards**
+- Avatar, name, title, totals, deltas
+- “Details” button that opens a full history page
+- Click avatar → opens bot directly on SpicyChat
 
-4. **Take Subsequent Snapshots**
-   - Open a web browser and go to `http://localhost:5000`.
-   - Click the "Take Snapshot" button.
-   - If a valid credentials exist, it will use that to take the snapshot. If it has expired, a browser window will open to `https://spicychat.ai` and you can login as described above.
-   - After logging in with your Google account, navigate to "My Chatbots," and then press Enter in the terminal (before closing the browser which will be done automatically) to capture credentials and create the snapshot.
-   - The dashboard will display the new bot table, charts, and Totals history.
+### 📈 **Bot Detail Pages**
+- Historical charts for each bot
+- Metadata + creation date
+- Quick link to open the bot
 
-## Directory Structure
+### 🔥 **Global Trending (New!)**
+This is the biggest addition yet.
 
-After setup completes, the directory structure will look like this:
+- Full Top-480 trending feed from SpicyChat (pages 1–10)
+- Accurate ranks (#1–480)
+- Rank badge colors (Top 240 = red, Top 480 = orange)
+- Sorting by Rank, Messages, Author
+- Pagination (48 per page)
+
+### 🧭 **Author Sidebar**
+- Full creator leaderboard
+- Shows who has the most bots in Top 480
+- Clicking a creator filters the trending list to *only* their bots
+- Reset Filter button to go back
+
+### 🖼 **Responsive Layout**
+- Cards stretch across ~95% of your window
+- Sidebar stays on the right and scrolls independently
+- Looks great on large monitors, laptops, even 1080p screens
+
+### 💾 **Local Database + Snapshots**
+Each day you run a snapshot, the dashboard stores:
+
+- Each bot’s totals  
+- Daily deltas  
+- Rank history  
+- How many of your bots hit Top 240 and Top 480  
+- Trending page numbers  
+- All historical charts  
+
+All inside a simple SQLite file.
+
+### 🔐 **Authentication**
+- Playwright pops open a secure browser tab
+- You log in normally using **email code login**  
+- Navigate to “My Chatbots”
+- Press Enter in the terminal to capture auth
+- Tokens expire every ~24 hours → dashboard will re-prompt
+
+Everything stays local and goes into `auth_credentials.json`.
+
+---
+
+# 🛠 Installation
+
+You now have **two** easy install paths: one-click or manual.
+
+---
+
+## 🟦 1. One-Click Windows Install (Easiest)
+
+Just double-click:
+
+```
+install_spicychat.bat
+```
+
+It will:
+
+- Install Python dependencies  
+- Install Playwright browsers  
+- Create all necessary directories  
+- Initialize the database  
+- Prepare everything for first run  
+
+That’s it.
+
+---
+
+## 🟧 2. Manual Setup (Any OS)
+
+Clone the repo:
+
+```bash
+git clone https://github.com/IxalonDarkstone/spicychat-analytics-dashboard.git
+cd spicychat-analytics-dashboard
+```
+
+Then run:
+
+```bash
+python setup_spicychat.py
+```
+
+This creates all folders, installs Playwright, initializes the database, etc.
+
+---
+
+# ▶️ Running the Dashboard
+
+Start the app:
+
+```bash
+python spicychat_analytics.py
+```
+
+### On first run:
+- A browser opens to SpicyChat  
+- Enter your email → type the 6-digit code  
+- Navigate to **My Chatbots**
+- Go back to terminal → press ENTER  
+- The dashboard captures your token and runs the initial snapshot  
+
+Then open:
+
+```
+http://localhost:5000
+```
+
+You’ll see your full analytics dashboard.
+
+---
+
+# 📁 Folder Layout
+
+After setup and first run:
 
 ```
 spicychat-analytics-dashboard/
 ├── spicychat_analytics.py
 ├── setup_spicychat.py
+├── install_spicychat.bat
+│
 ├── data/
 │   ├── spicychat.db
-│   ├── auth_credentials.json (created after login)
+│   ├── auth_credentials.json
+│   ├── public_bots_home_all.json
+│
 ├── logs/
 │   ├── spicychat.log
-│   ├── setup_spicychat.log
+│   ├── setup.log
+│
 ├── charts/
+│   ├── totals_*.png
+│   ├── bot_*.png
+│
 ├── static/
-│   ├── styles.css
+│   ├── style.css
 │   ├── charts/
-├── templates/
-│   ├── index.html
-│   ├── bots_table.html
-│   ├── bot.html
+│
+└── templates/
+    ├── index.html
+    ├── bots_table.html
+    ├── bot_detail.html
+    ├── global_trending.html
 ```
 
-## Features
+---
 
-- **Main Page Charts**: Visualize total messages and daily changes for 7-day, 30-day, Current Month, and All timeframes. 7 Days Default.
-- **Bot Cards/Detail Pages**: View bot cards for each of your bots with avatars and individual bot metrics and charts using the Details button on the card (All timeframe).
-- **Bot Table Sorting**: Sort by Delta Δ, Total, Created At, or Name, Ascending or Descending. Default is Delta Δ Descending.
-- **Creation Timeframe Scoping**: Choose the Created in: dropdown to see only bots created during the selected timeframe (All, 7 Days, 30 Days, Current Month). Defaults to All.
-- **Persistent Totals History**: Collapsible history table, expanded by default, persists state during the session.
-- **Authentication**: Uses `auth_credentials.json` to store credentials, with browser-based login for initial setup or expired tokens.
-- **Additional Features**: Correct daily deltas, dark theme, total bots display, snapshot button.
-- **Opening SpicyChat Bots**: You can open any specific bot in a new tab by clicking the avatar image on the main page or the Visit Bot Page button on the Bot Details page.
-- **Standalone Date Removal Script**: If SpicyChat ever goes down and no messages are received (eg. this happened on 9/16/25) you can use the clean_database_data.py file in the main directory to remove a specific date. I recommend taking a backup of the database located at data\spicychat.db before running this script. Use the syntax below to remove a specific date (the example shows what I ran on 9/17 to remove data from 9/16) from the database.
-```
+# 📸 Screenshots  
+*(Replace these placeholders with real images in `images/`.)*
+
+### **Main Dashboard Overview**
+> `![Main Dashboard](images/dashboard_overview.png)`
+
+### **Bot Cards Grid**
+> `![Bot Cards](images/bot_cards.png)`
+
+### **Bot Detail Page**
+> `![Bot Detail](images/bot_detail.png)`
+
+### **Global Trending Explorer**
+> `![Global Trending](images/global_trending.png)`
+
+### **Creator Sidebar Filter**
+> `![Creator Filter](images/sidebar_filter.png)`
+
+---
+
+# 🧹 Fixing Bad Snapshot Data
+
+If SpicyChat goes down and gives you a zero-message day, remove it:
+
+```bash
 python clean_database_data.py 09/16/2025
 ```
 
-## Screenshots
+(Always back up the DB first.)
 
-- **Main Page with Totals History**
-<img src="images/deltatracking.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
+---
 
-- **Main Page with Totals History Hidden and Bot Cards**
-<img src="images/mainlayout.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
+# ❓ Troubleshooting
 
-- **Bot Details Page**
-<img src="images/botdetails.png" raw=true alt="Main Layout" style="margin-right: 10px;"/>
+### Browser doesn’t open
+Run:
+```
+python -m playwright install
+```
 
+### Snapshot fails
+Delete:
+```
+data/auth_credentials.json
+```
+Run again.
 
-## Troubleshooting
+### Templates missing  
+Make sure you have:
+```
+templates/index.html
+templates/bots_table.html
+templates/bot_detail.html
+templates/global_trending.html
+```
 
-- **Setup Issues**: If the setup script fails, ensure Python 3.11+ is installed (`python --version`) and you have internet access.
-- **Log Files**: Check `logs/setup_spicychat.log` for setup errors or `logs/spicychat.log` for runtime issues.
-- **Snapshot Issues**: Ensure you complete the Google Sign-In and navigate to "My Chatbots" before pressing Enter in the terminal.
-- **Chart Issues**: Verify `charts/` and `static/charts/` are writable. Test without chart generation to isolate issues:
-  ```
-  python spicychat_analytics.py --no-charts
-  ```
+### Charts missing  
+Ensure folders exist and are writable:
+```
+charts/
+static/charts/
+```
 
-## Notes
+---
 
-- The dashboard requires a valid SpicyChat account for data access.
-- Charts for new bots (created on or after a specific date) are generated automatically during snapshots.
-- The dashboard runs locally and stores data in a SQLite database (`data/spicychat.db`).
+# 💬 Questions / Suggestions?
 
+Feel free to DM me on Discord: **@Ixalon**
 
-If you have any thoughts on what could be better or more useful, please feel free to DM me on Discord @Ixalon
+Always happy to improve this tool or help debug an issue.
+
