@@ -182,6 +182,7 @@ spicychat-analytics-dashboard/
 *(Replace these placeholders with real images in `images/`.)*
 
 ### **Main Dashboard Overview**
+<img src="images/dashboard_overview.png" alt="Main Dashboard" width="800" />
 > `![Main Dashboard](images/dashboard_overview.png)`
 
 ### **Bot Cards Grid**
