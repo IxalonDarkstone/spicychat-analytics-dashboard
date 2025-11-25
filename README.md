@@ -179,23 +179,21 @@ spicychat-analytics-dashboard/
 ---
 
 # 📸 Screenshots  
-*(Replace these placeholders with real images in `images/`.)*
 
 ### **Main Dashboard Overview**
 <img src="images/dashboard_overview.png" alt="Main Dashboard" width="800" />
-> `![Main Dashboard](images/dashboard_overview.png)`
 
 ### **Bot Cards Grid**
-> `![Bot Cards](images/bot_cards.png)`
+<img src="images/bot_cards.png" alt="Bot Cards" width="800" />
 
 ### **Bot Detail Page**
-> `![Bot Detail](images/bot_detail.png)`
+<img src="images/bot_detail.png" alt="Bot Detail" width="800" />
 
 ### **Global Trending Explorer**
-> `![Global Trending](images/global_trending.png)`
+<img src="images/global_trending.png" alt="Global Trending" width="800" />
 
 ### **Creator Sidebar Filter**
-> `![Creator Filter](images/sidebar_filter.png)`
+<img src="images/sidebar_filter.png" alt="Creator Filter" width="800" />
 
 ---
 
