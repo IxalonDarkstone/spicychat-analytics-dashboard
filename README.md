@@ -77,8 +77,16 @@ Everything stays local and goes into `auth_credentials.json`.
 You now have **two** easy install paths: one-click or manual.
 
 ---
+## 🟩 Clone the repo
 
-## 🟦 1. One-Click Windows Install (Easiest)
+```bash
+git clone https://github.com/IxalonDarkstone/spicychat-analytics-dashboard.git
+cd spicychat-analytics-dashboard
+```
+
+Then run one of the options below:
+
+## 🟦 One-Click Windows Install (Easiest)
 
 Just double-click:
 
@@ -98,16 +106,7 @@ That’s it.
 
 ---
 
-## 🟧 2. Manual Setup (Any OS)
-
-Clone the repo:
-
-```bash
-git clone https://github.com/IxalonDarkstone/spicychat-analytics-dashboard.git
-cd spicychat-analytics-dashboard
-```
-
-Then run:
+## 🟧 Manual Setup (Any OS)
 
 ```bash
 python setup_spicychat.py
