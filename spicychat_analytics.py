@@ -94,14 +94,31 @@ def set_last_snapshot_time():
     ts = datetime.now(CDT).strftime("%Y-%m-%d %I:%M %p")
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        conn.commit()
         c.execute("REPLACE INTO metadata (key, value) VALUES ('last_snapshot', ?)", (ts,))
         conn.commit()
 
 def get_last_snapshot_time():
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
+        # Ensure metadata table exists
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        conn.commit()
+
         row = c.execute("SELECT value FROM metadata WHERE key='last_snapshot'").fetchone()
         return row[0] if row else None
+
 
 def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_after="All"):
     """
@@ -1823,6 +1840,8 @@ def snapshot_scheduler():
 if __name__ == "__main__":
     setup_logging()
     ensure_dirs()
+    init_db()   # <---- ADD THIS
+
 
     parser = argparse.ArgumentParser(description="SpicyChat Analytics Dashboard")
     parser.add_argument("--port", type=int, default=5000)
