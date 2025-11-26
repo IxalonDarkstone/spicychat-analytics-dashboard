@@ -127,14 +127,24 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
 
     <!-- Totals history table -->
     <div class="totals-section">
-        <h2>Totals History</h2>
 
-        <!-- Button stays OUTSIDE the collapsible wrapper -->
-        <button id="toggleTotals" class="btn-link" style="margin-bottom: 10px;">
+        <!-- Header row with left title + right restart button -->
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2 style="margin:0;">Totals History</h2>
+    
+            <!-- Restart Server Button (right aligned) -->
+            <button id="restartBtn" class="primary-button" style="padding:6px 12px;">
+                Restart Server
+            </button>
+            
+        </div>
+    
+        <!-- Keep your existing toggle button exactly where it was -->
+        <button id="toggleTotals" class="btn-link" style="margin: 10px 0;">
             Hide Totals Table
         </button>
-
-        <!-- Only THIS wrapper gets collapsed -->
+    
+        <!-- Collapsible totals content -->
         <div id="totalsContent">
             <table class="totals-table">
                 <thead>
@@ -158,6 +168,7 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
             </table>
         </div>
     </div>
+    
 
 
     <!-- Bots section -->
@@ -439,7 +450,50 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
             }
         });
     </script>
+    <script>
+        document.getElementById("restartBtn").addEventListener("click", async () => {
+            if (!confirm("Restart the server now? Snapshot scheduler will pause.")) return;
         
+            // Show overlay
+            const overlay = document.createElement("div");
+            overlay.style.position = "fixed";
+            overlay.style.top = "0";
+            overlay.style.left = "0";
+            overlay.style.width = "100vw";
+            overlay.style.height = "100vh";
+            overlay.style.background = "rgba(0,0,0,0.75)";
+            overlay.style.display = "flex";
+            overlay.style.flexDirection = "column";
+            overlay.style.justifyContent = "center";
+            overlay.style.alignItems = "center";
+            overlay.style.color = "#fff";
+            overlay.style.fontSize = "20px";
+            overlay.style.zIndex = "9999";
+            overlay.innerHTML = "<div>Restarting server...<br><small>This may take a few seconds.</small></div>";
+            document.body.appendChild(overlay);
+        
+            // Call restart route WITHOUT navigating to it
+            await fetch("/restart", { method: "POST" });
+        
+            // Poll until the server is back online
+            const check = async () => {
+                try {
+                    const res = await fetch("/", { method: "GET", cache: "no-store" });
+                    if (res.ok) {
+                        window.location.href = "/";
+                    } else {
+                        setTimeout(check, 1000);
+                    }
+                } catch (_) {
+                    setTimeout(check, 1000);
+                }
+            };
+        
+            // Start polling
+            check();
+        });
+    </script>
+                
         
 </body>
 </html>

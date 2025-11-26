@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 import hashlib
 import pytz
 import threading
-
+import subprocess
 
 # ------------------ Config ------------------
 BASE_DIR = Path(__file__).resolve().parent
@@ -42,6 +42,8 @@ AUTH_REQUIRED = False
 SNAPSHOT_THREAD_STARTED = False
 # Timestamp of the last snapshot taken
 LAST_SNAPSHOT_DATE = None
+CURRENT_PORT = None
+RESTARTING = False
 
 
 # ------------------ Typesense / Trending config ------------------
@@ -1732,6 +1734,29 @@ def reauth():
         AUTH_REQUIRED = True
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route("/restart", methods=["POST"])
+def restart_server():
+    global CURRENT_PORT, RESTARTING, SNAPSHOT_THREAD_STARTED
+
+    safe_log("Restart requested by user")
+    RESTARTING = True
+
+    # Disable scheduler thread
+    SNAPSHOT_THREAD_STARTED = False  
+
+    cmd = [sys.executable, __file__, "--port", str(CURRENT_PORT)]
+    safe_log(f"Restart command: {cmd}")
+
+    # Start new process BEFORE shutting down current one
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Shut down current server
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func:
+        func()
+
+    return "Restarting...", 200
+
 
     _routes_defined = True
 
@@ -1770,9 +1795,15 @@ def reauth():
 #     app.run(host="0.0.0.0", port=args.port, debug=False)
 
 def snapshot_scheduler():
-    global AUTH_REQUIRED
+    global AUTH_REQUIRED, RESTARTING
 
     while True:
+        # pause scheduler if restarting
+        if RESTARTING:
+            safe_log("Scheduler paused — server restart in progress.")
+            time.sleep(2)
+            continue
+
         try:
             bearer, guest = load_auth_credentials()
 
@@ -1803,6 +1834,9 @@ if __name__ == "__main__":
     parser.add_argument("--host", type=str, default="0.0.0.0")
     args = parser.parse_args()
 
+    
+    CURRENT_PORT = args.port
+
     define_routes()
 
     if not SNAPSHOT_THREAD_STARTED:
@@ -1811,5 +1845,3 @@ if __name__ == "__main__":
 
     safe_log(f"Starting server on {args.host}:{args.port}")
     app.run(host=args.host, port=args.port)
-
-
