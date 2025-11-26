@@ -6,14 +6,11 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
     <style>
-        /* Page-scoped container */
         .global-wrapper .global-container {
-            max-width: none;
             width: 95%;
             margin: 32px auto;
         }
 
-        /* Two-column responsive layout */
         .layout-container {
             display: grid;
             grid-template-columns: minmax(0, 1fr) 280px;
@@ -39,6 +36,7 @@
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 16px;
+            margin-bottom: 24px;
             box-shadow: 0 2px 6px var(--shadow-2);
         }
 
@@ -52,8 +50,14 @@
             font-size: 13px;
         }
 
-        .creator-filter-link {
-            color: var(--accent-color);
+        .tag {
+            background: var(--accent-color);
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 11px;
+            margin-right: 4px;
+            display: inline-block;
+            color: #000;
         }
     </style>
 </head>
@@ -97,7 +101,10 @@
             </label>
 
             {% if author_filter %}
-            <input type="hidden" name="author" value="{{ author_filter }}">
+                <input type="hidden" name="author" value="{{ author_filter }}">
+            {% endif %}
+            {% if tag_filter %}
+                <input type="hidden" name="tag" value="{{ tag_filter }}">
             {% endif %}
 
             <button class="primary-button" type="submit">Apply</button>
@@ -117,10 +124,21 @@
             </div>
         {% endif %}
 
-        <!-- LAYOUT: GRID + SIDEBAR -->
+        {% if tag_filter %}
+            <div style="margin-bottom:15px;">
+                <a href="/global-trending" class="primary-button" style="margin-right:10px;">
+                    Reset Tag Filter
+                </a>
+                <span style="color:var(--text-muted);">
+                    Showing bots tagged <strong>{{ tag_filter }}</strong>
+                </span>
+            </div>
+        {% endif %}
+
+        <!-- LAYOUT -->
         <div class="layout-container">
 
-            <!-- LEFT COLUMN: BOT CARDS -->
+            <!-- LEFT COLUMN -->
             <div class="left-column">
                 <div class="bot-grid">
                     {% for b in bots %}
@@ -141,12 +159,19 @@
 
                         <div class="bot-stats">
                             Author:
-                            <!-- CARD AUTHOR → CREATOR PAGE (NOT FILTER) -->
                             <a href="https://spicychat.ai/creator/{{ b.creator_username }}"
                                target="_blank">
                                 {{ b.creator_username }}
                             </a>
                         </div>
+
+                        {% if b.tags %}
+                        <div class="bot-tags">
+                            {% for tag in b.tags %}
+                                <span class="tag">{{ tag }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
 
                         <a href="{{ b.link }}" target="_blank" class="details-link">Chat</a>
 
@@ -155,24 +180,20 @@
                 </div>
             </div>
 
-            <!-- RIGHT COLUMN: LEADERBOARD FILTER -->
+            <!-- RIGHT SIDEBAR -->
             <div class="right-column">
+
+                <!-- TOP CREATORS -->
                 <div class="sidebar-box">
-
                     <h3>Top Creators</h3>
-
                     <table class="sidebar-table">
                         <thead>
-                            <tr>
-                                <th>Creator</th>
-                                <th>#</th>
-                            </tr>
+                            <tr><th>Creator</th><th>#</th></tr>
                         </thead>
                         <tbody>
                         {% for c in creators %}
                             <tr>
                                 <td>
-                                    <!-- SIDEBAR AUTHOR → FILTER -->
                                     <a href="?author={{ c.creator }}&sort={{ sort_field }}&order={{ order }}"
                                        class="creator-filter-link">
                                        {{ c.creator }}
@@ -183,35 +204,55 @@
                         {% endfor %}
                         </tbody>
                     </table>
-
                 </div>
-            </div>
 
-        </div> <!-- end layout-container -->
+                <!-- TOP TAGS -->
+                <div class="sidebar-box">
+                    <h3>Top Tags</h3>
+                    <table class="sidebar-table">
+                        <thead>
+                            <tr><th>Tag</th><th>#</th></tr>
+                        </thead>
+                        <tbody>
+                        {% for t in tags %}
+                            <tr>
+                                <td>
+                                    <a href="?tag={{ t.tag }}&sort={{ sort_field }}&order={{ order }}"
+                                       class="creator-filter-link">
+                                       {{ t.tag }}
+                                    </a>
+                                </td>
+                                <td>{{ t.count }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
 
         <!-- Pagination -->
         <div style="margin:30px 0; display:flex; justify-content:center; gap:10px;">
             {% if page > 1 %}
                 <a class="primary-button"
-                   href="?page={{ page-1 }}{% if author_filter %}&author={{ author_filter }}{% endif %}&sort={{ sort_field }}&order={{ order }}">
+                   href="?page={{ page-1 }}{% if author_filter %}&author={{ author_filter }}{% endif %}{% if tag_filter %}&tag={{ tag_filter }}{% endif %}&sort={{ sort_field }}&order={{ order }}">
                     Prev
                 </a>
             {% endif %}
 
-            <span style="padding:10px; opacity:0.7;">
-                Page {{ page }} / {{ total_pages }}
-            </span>
+            <span style="padding:10px; opacity:0.7;">Page {{ page }} / {{ total_pages }}</span>
 
             {% if page < total_pages %}
                 <a class="primary-button"
-                   href="?page={{ page+1 }}{% if author_filter %}&author={{ author_filter }}{% endif %}&sort={{ sort_field }}&order={{ order }}">
+                   href="?page={{ page+1 }}{% if author_filter %}&author={{ author_filter }}{% endif %}{% if tag_filter %}&tag={{ tag_filter }}{% endif %}&sort={{ sort_field }}&order={{ order }}">
                     Next
                 </a>
             {% endif %}
         </div>
 
-    </div> <!-- end global-container -->
-</div> <!-- end global-wrapper -->
+    </div>
+</div>
 
 <script>
 document.getElementById("toggleBlur")

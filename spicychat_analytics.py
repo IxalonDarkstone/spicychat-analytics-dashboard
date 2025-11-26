@@ -698,11 +698,13 @@ def fetch_typesense_top_bots(max_pages=10, per_page=48, use_cache=True):
                 "avatar_url": doc.get("avatar_url", ""),
                 "creator_username": doc.get("creator_username", ""),
                 "creator_user_id": doc.get("creator_user_id", ""),
+                "tags": doc.get("tags", []) or [],   # ← NEW
                 "is_nsfw": bool(doc.get("is_nsfw", False)),
                 "link": f"https://spicychat.ai/chat/{cid}",
                 "page": page,
                 "rank": rank,
             }
+
             all_bots.append(bot)
 
         logging.debug(f"Fetched page {page} -> {len(hits)} hits, total collected {len(all_bots)} so far")
@@ -1585,7 +1587,8 @@ def trending():
     else:
         my_bots_count = df_raw["bot_id"].nunique()
 
-    bearer, guest_userid = load_auth_credentials()
+    bearer_token, guest_userid = capture_auth_credentials()
+
 
     # First try cache; if it looks empty, force a live fetch
     ts_map = fetch_typesense_top_bots(max_pages=10, per_page=per_page, use_cache=True)
@@ -1696,7 +1699,7 @@ def global_trending():
     ts_map = fetch_typesense_top_bots(max_pages=10, use_cache=True)
     ts_list = list(ts_map.values())
 
-    # --- Sorting ---
+    # --------- Sorting ---------
     sort_field = request.args.get("sort", "rank")
     order = request.args.get("order", "asc")
     reverse = (order == "desc")
@@ -1708,12 +1711,17 @@ def global_trending():
     else:
         ts_list.sort(key=lambda b: int(b.get("rank") or 999999), reverse=reverse)
 
-    # --- Filtering by author ---
+    # --------- Filters ---------
     author_filter = request.args.get("author")
+    tag_filter = request.args.get("tag")
+
     if author_filter:
         ts_list = [b for b in ts_list if b.get("creator_username") == author_filter]
 
-    # --- Pagination ---
+    if tag_filter:
+        ts_list = [b for b in ts_list if tag_filter in (b.get("tags") or [])]
+
+    # --------- Pagination ---------
     PER_PAGE = 48
     page = int(request.args.get("page", 1))
     total_pages = max((len(ts_list) - 1) // PER_PAGE + 1, 1)
@@ -1733,9 +1741,9 @@ def global_trending():
             bot["avatar_url"] = f"{AVATAR_BASE_URL}/default-avatar.png"
         page_items.append(bot)
 
-    # Build creator leaderboard
+    # --------- Creator leaderboard ---------
     creator_counts = {}
-    for bot in ts_map.values():   # count from ALL bots, not filtered list
+    for bot in ts_map.values():   # count from ALL bots
         creator = bot.get("creator_username", "")
         if creator:
             creator_counts[creator] = creator_counts.get(creator, 0) + 1
@@ -1745,35 +1753,61 @@ def global_trending():
         key=lambda x: x["count"], reverse=True
     )
 
+    # --------- Tag frequency leaderboard ---------
+    tag_counts = {}
+    for bot in ts_map.values():   # ALL bots, not filtered list
+        tags = bot.get("tags", [])
+        if tags:
+            for tag in tags:
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    tags_sorted = sorted(
+        [{"tag": t, "count": c} for t, c in tag_counts.items()],
+        key=lambda x: x["count"],
+        reverse=True
+    )
+
     return render_template(
         "global_trending.html",
         bots=page_items,
         creators=creators_sorted,
+        tags=tags_sorted,
         page=page,
         total_pages=total_pages,
         sort_field=sort_field,
         order=order,
-        author_filter=author_filter
+        author_filter=author_filter,
+        tag_filter=tag_filter
     )
 
-@app.route("/api/snapshot_status")
-def snapshot_status():
-    return jsonify({
-        "auth_required": AUTH_REQUIRED
-    })
 
 @app.route("/reauth", methods=["POST"])
 def reauth():
-    global AUTH_REQUIRED
+    global AUTH_REQUIRED, SNAPSHOT_THREAD_STARTED
 
     try:
+        # Capture credentials via Playwright
         bearer, guest = capture_auth_credentials()
+
+        # Mark auth as valid
         AUTH_REQUIRED = False
+
+        safe_log("Reauthentication successful — running immediate snapshot...")
+
+        # Run a snapshot immediately after auth
+        try:
+            take_snapshot({})
+            safe_log("Snapshot after reauth completed.")
+        except Exception as e:
+            safe_log(f"Snapshot after reauth failed: {e}")
+
         return jsonify({"success": True})
+
     except Exception as e:
-        safe_log(f"Reauth failed: {e}")
+        safe_log(f"Reauthentication failed: {e}")
         AUTH_REQUIRED = True
         return jsonify({"success": False, "error": str(e)}), 500
+
 
     #_routes_defined = True
 
