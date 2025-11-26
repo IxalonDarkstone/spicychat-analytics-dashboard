@@ -2,122 +2,435 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <title>SpicyChat Analytics</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SpicyChat Analytics Dashboard</title>
+
+    <!-- Global styles -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header class="header">
+<div class="container">
+
+    
+<div id="authWarning" style="display:none;
+background:#1c1c1f;border:1px solid #4aa8ff;
+padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px rgba(0,0,0,0.4);">
+<h3 style="margin-top:0;color:#4aa8ff;">🔐 Authentication Required</h3>
+<p>Your SpicyChat login is missing or expired. Please reauthenticate.</p>
+<button id="authButton" class="primary-button">Re-Authenticate</button>
+</div>
+
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
             <h1>SpicyChat Analytics</h1>
+            <div class="subheader">Dashboard overview</div>
+        </div>
+
+        <div class="header-right">
             <div class="stats">
-                Total Messages: <span class="stat-value">{{ total_messages }}</span> | 
-                Total Bots: <span class="stat-value">{{ total_bots }}</span> (as of {{ latest }})
+                Total Messages:
+                <span class="stat-value">{{ total_messages }}</span>
+                · Total Bots:
+                <span class="stat-value">{{ total_bots }}</span>
+                {% if latest %} (as of {{ latest }}) {% endif %}
             </div>
-            <form action="/take-snapshot" method="post" class="action-form">
-                <button type="submit" class="action-button">Take Snapshot</button>
-            </form>
-            <div class="chart-controls">
-                <form method="get" action="/">
-                    <select name="chart_sort_by" onchange="this.form.submit()" style="padding: 5px; border: 1px solid #444; border-radius: 4px; background-color: #333; color: #e0e0e0;">
+
+            <div class="header-actions" style="display:flex; gap:10px; align-items:center;">
+                <form action="/take-snapshot" method="post" class="action-form">
+                    <button type="submit" class="primary-button">Take Snapshot</button>
+                </form>
+
+                <!-- NEW: Global Trending Button -->
+                <a href="/global-trending" class="primary-button">Global Trending</a>
+            </div>
+        </div>
+    </header>
+
+
+    <!-- KPI cards -->
+    <section class="kpi-row">
+        <div class="kpi-card">
+            <div class="kpi-label">Total Messages</div>
+            <div class="kpi-value">{{ total_messages }}</div>
+            <div class="kpi-sub">Across {{ total_bots }} bots</div>
+        </div>
+        <div class="kpi-card" id="kpiTimeframe">
+            <div class="kpi-label" id="kpiTimeframeLabel">Messages (Timeframe)</div>
+            <div class="kpi-value" id="kpiTimeframeTotal">0</div>
+        </div>        
+        {% if totals and totals|length > 0 %}
+        <div class="kpi-card">
+            <div class="kpi-label">Latest Daily Change</div>
+            <div class="kpi-value">{{ totals[0].daily_fmt }}</div>
+            <div class="kpi-sub">Most recent snapshot</div>
+        </div>
+        {% endif %}
+
+        <div class="kpi-card">
+            <div class="kpi-label">Chart Timeframe</div>
+            <div class="kpi-value">{{ chart_sort_by }}</div>
+            <div class="kpi-sub">Current chart window</div>
+        </div>
+    </section>
+
+    <!-- Charts row 1: Total + Daily -->
+    <section class="charts-row">
+        <div class="chart-card">
+            <div class="chart-header">
+                <h2>Total Messages</h2>
+            
+                <!-- Chart timeframe selector -->
+                <form method="get" action="{{ url_for('index') }}" class="chart-timeframe-form">
+                    <select name="chart_sort_by" onchange="this.form.submit()">
                         <option value="7day" {% if chart_sort_by == '7day' %}selected{% endif %}>7 Days</option>
                         <option value="30day" {% if chart_sort_by == '30day' %}selected{% endif %}>30 Days</option>
                         <option value="current_month" {% if chart_sort_by == 'current_month' %}selected{% endif %}>Current Month</option>
                         <option value="All" {% if chart_sort_by == 'All' %}selected{% endif %}>All</option>
                     </select>
+            
                     <input type="hidden" name="sort_by" value="{{ sort_by }}">
-                    <input type="hidden" name="sort_asc" value="{{ sort_asc }}">
-                    <input type="hidden" name="timeframe" value="{{ chart_sort_by }}">
+                    <input type="hidden" name="sort_asc" value="{{ 'true' if sort_asc else 'false' }}">
                     <input type="hidden" name="created_after" value="{{ created_after }}">
+                    <input type="hidden" name="timeframe" value="{{ timeframe }}">
                 </form>
-            </div>
-        </header>
-        <div class="chart-container">
-            <img src="{{ url_for('static', filename='charts/total_messages_' + chart_sort_by.replace(' ', '_') + '.png') }}" alt="Total Messages Chart" class="chart">
-            <img src="{{ url_for('static', filename='charts/total_daily_changes_' + chart_sort_by.replace(' ', '_') + '.png') }}" alt="Total Daily Message Changes Chart" class="chart">
+            </div>            
+            <canvas id="totalMessagesChart"></canvas>
         </div>
-        <div class="totals-section">
-            <button id="toggleTotals" class="toggle-button">Hide Totals</button>
-            <table id="totalsTable" class="totals-table">
+
+        <div class="chart-card">
+            <div class="chart-header">
+                <h2>Daily Message Changes</h2>
+            </div>
+            <canvas id="dailyMessagesChart"></canvas>
+        </div>
+    </section>
+
+    <!-- Charts row 2: Top 5 + Top 10 -->
+    <section class="charts-row">
+        <div class="chart-card">
+            <div class="chart-header">
+                <h2>Bots in Top 5 Pages</h2>
+            </div>
+            <canvas id="top240Chart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-header">
+                <h2>Bots in Top 10 Pages</h2>
+            </div>
+            <canvas id="top480Chart"></canvas>
+        </div>
+    </section>
+
+    <!-- Totals history table -->
+    <div class="totals-section">
+        <h2>Totals History</h2>
+
+        <!-- Button stays OUTSIDE the collapsible wrapper -->
+        <button id="toggleTotals" class="btn-link" style="margin-bottom: 10px;">
+            Hide Totals Table
+        </button>
+
+        <!-- Only THIS wrapper gets collapsed -->
+        <div id="totalsContent">
+            <table class="totals-table">
                 <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Total Messages</th>
-                        <th>Total Daily Message Changes</th>
-                    </tr>
+                <tr>
+                    <th>Date</th>
+                    <th>Total Messages</th>
+                    <th>Daily Change</th>
+                </tr>
                 </thead>
                 <tbody>
-                    {% for total in totals %}
+                {% for row in totals %}
                     <tr>
-                        <td>{{ total.date }}</td>
-                        <td>{{ total.total_fmt }}</td>
-                        <td>{{ total.daily_fmt }}</td>
+                        <td>{{ row.date }}</td>
+                        <td>{{ row.total_fmt }}</td>
+                        <td class="{% if row.daily >= 0 %}delta-positive{% else %}delta-negative{% endif %}">
+                            {{ row.daily_fmt }}
+                        </td>
                     </tr>
-                    {% endfor %}
+                {% endfor %}
                 </tbody>
             </table>
         </div>
+    </div>
+
+
+    <!-- Bots section -->
+    <section class="bots-section">
+        <h2>Your Bots</h2>
+
         <div class="bot-controls">
-            <form method="get" action="/">
-                <div class="left-controls" style="display: flex; align-items: center; gap: 10px;">
-                    <label style="font-size: 16px; color: #3c6e9f; margin: 0; padding: 5px 10px; background-color: #2a2a2a; border-radius: 4px;">Sort by:</label>
-                    <select name="sort_by" onchange="this.form.submit()" style="padding: 5px; border: 1px solid #444; border-radius: 4px; background-color: #333; color: #e0e0e0;">
-                        <option value="delta" {% if sort_by == 'delta' %}selected{% endif %}>Delta</option>
-                        <option value="total" {% if sort_by == 'total' %}selected{% endif %}>Total</option>
-                        <option value="created_at" {% if sort_by == 'created_at' %}selected{% endif %}>Created At</option>
+            <form method="get" action="{{ url_for('index') }}" class="bot-filter-form">
+        
+                <label>
+                    Sort by:
+                    <select name="sort_by">
+                        <option value="delta" {% if sort_by == 'delta' %}selected{% endif %}>Daily Change</option>
+                        <option value="total" {% if sort_by == 'total' %}selected{% endif %}>Total Messages</option>
                         <option value="name" {% if sort_by == 'name' %}selected{% endif %}>Name</option>
+                        <option value="created_at" {% if sort_by == 'created_at' %}selected{% endif %}>Created At</option>
                     </select>
-                    <select name="sort_asc" onchange="this.form.submit()" style="padding: 5px; border: 1px solid #444; border-radius: 4px; background-color: #333; color: #e0e0e0;">
+                </label>
+        
+                <label>
+                    Order:
+                    <select name="sort_asc">
                         <option value="false" {% if not sort_asc %}selected{% endif %}>Descending</option>
                         <option value="true" {% if sort_asc %}selected{% endif %}>Ascending</option>
                     </select>
-                </div>
-                <div class="right-controls" style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-grow: 1;">
-                    <label style="font-size: 16px; color: #3c6e9f; margin: 0; padding: 5px 10px; background-color: #2a2a2a; border-radius: 4px;">Created in:</label>
-                    <select name="created_after" onchange="this.form.submit()" style="padding: 5px; border: 1px solid #444; border-radius: 4px; background-color: #333; color: #e0e0e0;">
+                </label>
+        
+                <label>
+                    Created in:
+                    <select name="created_after">
                         <option value="All" {% if created_after == 'All' %}selected{% endif %}>All</option>
-                        <option value="7day" {% if created_after == '7day' %}selected{% endif %}>7 Days</option>
-                        <option value="30day" {% if created_after == '30day' %}selected{% endif %}>30 Days</option>
+                        <option value="7day" {% if created_after == '7day' %}selected{% endif %}>Last 7 Days</option>
+                        <option value="30day" {% if created_after == '30day' %}selected{% endif %}>Last 30 Days</option>
                         <option value="current_month" {% if created_after == 'current_month' %}selected{% endif %}>Current Month</option>
                     </select>
-                </div>
+                </label>
+        
+                <!-- preserve chart timeframe -->
                 <input type="hidden" name="chart_sort_by" value="{{ chart_sort_by }}">
-                <input type="hidden" name="sort_by" value="{{ sort_by }}">
-                <input type="hidden" name="sort_asc" value="{{ sort_asc }}">
-                <input type="hidden" name="timeframe" value="{{ timeframe }}">
+        
+                <button type="submit" class="primary-button">Apply</button>
             </form>
-            <button id="toggleBlur" class="toggle-button">Blur Avatars</button>
+        
+            <button id="toggleBlur" class="btn-link">Toggle Blur</button>
         </div>
-        <div id="botTableContainer">
-            {% include 'bots_table.html' %}
-        </div>
-    </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const toggleTotals = document.getElementById('toggleTotals');
-            const totalsTable = document.getElementById('totalsTable');
-            let isTotalsCollapsed = sessionStorage.getItem('totalsCollapsed') === 'true';
-            totalsTable.style.display = isTotalsCollapsed ? 'none' : 'table';
-            toggleTotals.textContent = isTotalsCollapsed ? 'Show Totals' : 'Hide Totals';
-            toggleTotals.addEventListener('click', () => {
-                isTotalsCollapsed = !isTotalsCollapsed;
-                totalsTable.style.display = isTotalsCollapsed ? 'none' : 'table';
-                toggleTotals.textContent = isTotalsCollapsed ? 'Show Totals' : 'Hide Totals';
-                sessionStorage.setItem('totalsCollapsed', isTotalsCollapsed);
-            });
+        
+        
 
-            const toggleBlur = document.getElementById('toggleBlur');
-            let isBlurred = sessionStorage.getItem('avatarsBlurred') === 'true';
-            const botImages = document.querySelectorAll('.bot-image');
-            botImages.forEach(img => img.classList.toggle('blurred', isBlurred));
-            toggleBlur.textContent = isBlurred ? 'Unblur Avatars' : 'Blur Avatars';
-            toggleBlur.addEventListener('click', () => {
-                isBlurred = !isBlurred;
-                botImages.forEach(img => img.classList.toggle('blurred', isBlurred));
-                toggleBlur.textContent = isBlurred ? 'Unblur Avatars' : 'Blur Avatars';
-                sessionStorage.setItem('avatarsBlurred', isBlurred);
-            });
+        {% include 'bots_table.html' %}
+    </section>
+
+</div>
+
+<script>
+    async function fetchTotals(timeframe) {
+        const res = await fetch(`/api/totals?timeframe=${encodeURIComponent(timeframe)}`);
+        return res.json();
+    }
+    
+    function buildLineChart(ctx, labels, values, label) {
+        return new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label,
+                    data: values,
+                    borderWidth: 2,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    hitRadius: 8,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { tooltip: { mode: 'index', intersect: false } },
+                scales: {
+                    y: { ticks: { callback: value => value.toLocaleString() } }
+                }
+            }
         });
+    }
+    
+    function buildCountChart(ctx, labels, values, label) {
+        return new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label,
+                    data: values,
+                    borderWidth: 2,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    hitRadius: 8,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { tooltip: { mode: 'index', intersect: false } },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1, precision: 0 }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Update timeframe KPI card
+    function updateTimeframeKPI(tfTotal, tfBots, timeframeLabel) {
+        document.getElementById("kpiTimeframeLabel").textContent = "Messages (" + timeframeLabel + ")";
+        document.getElementById("kpiTimeframeTotal").textContent = tfTotal.toLocaleString();
+        document.getElementById("kpiTimeframeBots").textContent = "Across " + tfBots + " bots";
+    }
+    
+    document.addEventListener("DOMContentLoaded", async () => {
+        const timeframe = "{{ chart_sort_by }}";
+    
+        try {
+            const data = await fetchTotals(timeframe);
+            const labels  = data.points.map(p => p.date);
+            const totals  = data.points.map(p => p.total);
+            const dailies = data.points.map(p => p.daily);
+            const top480  = data.points.map(p => p.top480 || 0);
+            const top240  = data.points.map(p => p.top240 || 0);
+    
+            // Build the graphs
+            buildLineChart(document.getElementById("totalMessagesChart"), labels, totals, "Total Messages");
+            buildLineChart(document.getElementById("dailyMessagesChart"), labels, dailies, "Daily Changes");
+            buildCountChart(document.getElementById("top240Chart"), labels, top240, "Bots in Top 5 Pages");
+            buildCountChart(document.getElementById("top480Chart"), labels, top480, "Bots in Top 10 Pages");
+    
+            // Determine timeframe label
+            let timeframeLabel = "All Time";
+            if (timeframe === "7day") timeframeLabel = "Last 7 Days";
+            else if (timeframe === "30day") timeframeLabel = "Last 30 Days";
+            else if (timeframe === "current_month") timeframeLabel = "Current Month";
+    
+            // FIX: Call KPI updater **inside the try block**, where data is defined
+            updateTimeframeKPI(data.tf_total, data.tf_bots, timeframeLabel);
+    
+        } catch (e) {
+            console.error("Failed to build charts:", e);
+        }
+    
+        const blurButton = document.getElementById("toggleBlur");
+        if (blurButton) {
+            blurButton.addEventListener("click", () => {
+                document.querySelectorAll(".bot-image")
+                    .forEach(img => img.classList.toggle("blurred"));
+            });
+        }
+    });
     </script>
+    
+<script>
+// ------------------------------
+// Theme Toggle System
+// ------------------------------
+(function() {
+    const root = document.body;
+
+    // Load saved preference
+    const saved = localStorage.getItem("theme");
+    if (saved) {
+        root.setAttribute("data-theme", saved);
+    } else {
+        root.setAttribute("data-theme", "dark");
+    }
+
+    // Toggle button
+    const toggle = document.getElementById("themeToggle");
+    if (toggle) {
+        toggle.addEventListener("click", () => {
+            const current = root.getAttribute("data-theme");
+            const next = current === "dark" ? "light" : "dark";
+            root.setAttribute("data-theme", next);
+            localStorage.setItem("theme", next);
+        });
+    }
+})();
+</script>
+<script>
+    async function checkStatus() {
+        const res = await fetch("/api/snapshot_status");
+        const status = await res.json();
+    
+        const banner = document.getElementById("authWarning");
+        const authBtn = document.getElementById("authButton");
+    
+        if (status.auth_required) {
+            banner.style.display = "block";
+        } else {
+            banner.style.display = "none";
+        }
+    }
+    
+    // Auto-refresh at top of hour when auth is OK
+    function scheduleDashboardRefresh() {
+        // Refresh dashboard every 15 minutes (900,000 ms) IF auth is fine
+        setInterval(async () => {
+            const res = await fetch("/api/snapshot_status");
+            const status = await res.json();
+
+            if (!status.auth_required) {
+                location.reload();
+            }
+        }, 900000);       
+    }
+    
+    document.addEventListener("DOMContentLoaded", function() {
+    
+        // Check auth status every 60 seconds
+        setInterval(checkStatus, 900000);
+        checkStatus();
+        scheduleDashboardRefresh();
+    
+        // Launch auth flow
+        document.getElementById("authButton").addEventListener("click", () => {
+            fetch("/auth", { method: "POST" })
+                .then(() => console.log("Auth started"))
+                .catch(err => console.error(err));
+        });
+    });
+
+    // ---------------------------
+    // Hide / Show Totals Table + Persistence
+    // ---------------------------
+    document.addEventListener("DOMContentLoaded", () => {
+        const btn = document.getElementById("toggleTotals");
+        const content = document.getElementById("totalsContent");
+    
+        if (!btn || !content) return;
+    
+        // Load saved state
+        const saved = localStorage.getItem("totals_hidden");
+    
+        if (saved === "true") {
+            content.style.display = "none";
+            btn.textContent = "Show Totals Table";
+        } else {
+            content.style.display = "block";
+            btn.textContent = "Hide Totals Table";
+        }
+    
+        // Toggle + persist
+        btn.addEventListener("click", () => {
+            const hidden = content.style.display === "none";
+    
+            if (hidden) {
+                content.style.display = "block";
+                btn.textContent = "Hide Totals Table";
+                localStorage.setItem("totals_hidden", "false");
+            } else {
+                content.style.display = "none";
+                btn.textContent = "Show Totals Table";
+                localStorage.setItem("totals_hidden", "true");
+            }
+        });
+    });
+    
+    </script>
+    <script>
+        document.getElementById("authButton").onclick = () => {
+            window.location.href = "/auth-start";
+        };
+    </script>
+        
 </body>
 </html>

@@ -1,0 +1,38 @@
+2025-10-05 00:50:45,321 [INFO] Starting smoothing for 2025-09-27 to 2025-10-05 with totals 55999722 to 58153620
+2025-10-05 00:50:45,322 [INFO] Growth: 2153898 over 7 days, average daily: 307699.71428571426
+2025-10-05 00:50:56,612 [INFO] Found 322 bots from 2025-09-27
+2025-10-05 00:50:56,622 [INFO] Smoothing 2025-09-28 (fraction: 0.143)
+2025-10-05 00:50:56,629 [INFO] Smoothing 2025-09-29 (fraction: 0.286)
+2025-10-05 00:50:56,634 [INFO] Smoothing 2025-09-30 (fraction: 0.429)
+2025-10-05 00:50:56,641 [INFO] Smoothing 2025-10-01 (fraction: 0.571)
+2025-10-05 00:50:56,647 [INFO] Smoothing 2025-10-02 (fraction: 0.714)
+2025-10-05 00:50:56,653 [INFO] Smoothing 2025-10-03 (fraction: 0.857)
+2025-10-05 00:50:56,659 [INFO] Smoothing 2025-10-04 (fraction: 1.000)
+2025-10-05 00:50:56,678 [INFO] Smoothed 7 days for 322 bots.
+2025-10-05 00:50:56,679 [INFO] Smoothing completed.
+2025-10-05 01:03:22,989 [INFO] Starting smoothing for 2025-09-27 to 2025-10-05 with totals 55999722 to 58153620
+2025-10-05 01:03:23,000 [INFO] Growth: 2153898 over 8 days, average daily: 269237.25
+2025-10-05 01:03:27,063 [INFO] Found 322 bots from 2025-09-27
+2025-10-05 01:03:27,064 [INFO] Smoothing 2025-09-28 (fraction: 0.125)
+2025-10-05 01:03:27,079 [INFO] Smoothing 2025-09-29 (fraction: 0.250)
+2025-10-05 01:03:27,086 [INFO] Smoothing 2025-09-30 (fraction: 0.375)
+2025-10-05 01:03:27,091 [INFO] Smoothing 2025-10-01 (fraction: 0.500)
+2025-10-05 01:03:27,097 [INFO] Smoothing 2025-10-02 (fraction: 0.625)
+2025-10-05 01:03:27,103 [INFO] Smoothing 2025-10-03 (fraction: 0.750)
+2025-10-05 01:03:27,109 [INFO] Smoothing 2025-10-04 (fraction: 0.875)
+2025-10-05 01:03:27,114 [INFO] Smoothing 2025-10-05 (fraction: 1.000)
+2025-10-05 01:03:27,135 [INFO] Smoothed 8 days for 322 bots.
+2025-10-05 01:03:27,135 [INFO] Smoothing completed.
+2025-10-05 01:18:10,448 [INFO] Starting smoothing for 2025-09-27 to 2025-10-05 with totals 55999722 to 58153620, current day growth 100000
+2025-10-05 01:18:10,449 [INFO] Total growth: 2153898, Current day growth: 100000, Average daily over 7 days: 293414.0
+2025-10-05 01:18:14,711 [INFO] Found 322 bots from 2025-09-27
+2025-10-05 01:18:14,712 [INFO] Smoothing 2025-09-28 (fraction: 0.143)
+2025-10-05 01:18:14,719 [INFO] Smoothing 2025-09-29 (fraction: 0.286)
+2025-10-05 01:18:14,724 [INFO] Smoothing 2025-09-30 (fraction: 0.429)
+2025-10-05 01:18:14,730 [INFO] Smoothing 2025-10-01 (fraction: 0.571)
+2025-10-05 01:18:14,736 [INFO] Smoothing 2025-10-02 (fraction: 0.714)
+2025-10-05 01:18:14,742 [INFO] Smoothing 2025-10-03 (fraction: 0.857)
+2025-10-05 01:18:14,749 [INFO] Smoothing 2025-10-04 (fraction: 1.000)
+2025-10-05 01:18:14,756 [INFO] Smoothing 2025-10-05 with total growth 100000
+2025-10-05 01:18:14,776 [INFO] Smoothed 8 days for 322 bots.
+2025-10-05 01:18:14,777 [INFO] Smoothing completed.

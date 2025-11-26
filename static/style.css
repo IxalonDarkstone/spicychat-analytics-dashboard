@@ -1,210 +1,440 @@
+/* ============================================================
+   THEME VARIABLES (Dark Default)
+   ============================================================ */
+
+   :root {
+    --bg-color: #1c1c1f;
+    --card-color: #252528;
+    --border-color: #3a3a3a;
+    --text-color: #e5e5e5;
+    --text-muted: #a0a0a0;
+    --accent-color: #4aa8ff;
+
+    --kpi-bg: #202024;
+
+    --shadow-1: rgba(0, 0, 0, 0.45);
+    --shadow-2: rgba(0, 0, 0, 0.55);
+}
+
+/* ============================================================
+   LIGHT THEME
+   ============================================================ */
+
+body.light {
+    --bg-color: #f5f5f7;
+    --card-color: #ffffff;
+    --border-color: #d0d0d0;
+    --text-color: #1b1b1d;
+    --text-muted: #444;
+    --accent-color: #0063e0;
+
+    --kpi-bg: #fafafa;
+
+    --shadow-1: rgba(0, 0, 0, 0.14);
+    --shadow-2: rgba(0, 0, 0, 0.22);
+}
+
+/* ============================================================
+   GLOBAL
+   ============================================================ */
+
 body {
-    font-family: Arial, sans-serif;
     margin: 0;
     padding: 0;
-    background-color: #1e1e1e;
-    color: #e0e0e0;
+    font-family: Arial, sans-serif;
+
+    background-color: var(--bg-color);
+    color: var(--text-color);
+
+    transition: background-color 0.25s ease, color 0.25s ease;
 }
+
+h1, h2, h3, h4 {
+    margin: 0;
+    color: var(--text-color);
+}
+
+.subheader {
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+a {
+    text-decoration: none;
+    color: var(--accent-color);
+}
+
+/* ============================================================
+   MAIN CONTAINER
+   ============================================================ */
 
 .container {
     max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-    background-color: #2a2a2a;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    margin: 32px auto;
+    padding: 24px;
+
+    background-color: var(--card-color);
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+
+    box-shadow: 0 12px 30px var(--shadow-1);
+    transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
+/* ============================================================
+   HEADER
+   ============================================================ */
+
 .header {
-    padding: 15px;
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
 }
 
 .stats {
-    font-size: 18px;
-    margin-bottom: 10px;
-    color: #e0e0e0;
+    font-size: 13px;
+    color: var(--text-muted);
 }
 
 .stat-value {
-    font-weight: bold;
-    color: #3c6e9f;
+    font-weight: 600;
+    color: var(--accent-color);
 }
 
-.action-form, .control-form {
-    display: flex;
-    gap: 10px;
-    margin: 10px 0;
-    justify-content: center;
-}
+/* ============================================================
+   BUTTONS
+   ============================================================ */
 
-.action-button, .toggle-button {
-    padding: 8px 15px;
-    background-color: #3c6e9f;
-    color: #ffffff;
-    border: none;
-    border-radius: 4px;
+.primary-button {
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 13px;
     cursor: pointer;
-    transition: background-color 0.3s;
-    text-decoration: none;
-    display: inline-block;
+    color: #fff;
+
+    background: linear-gradient(135deg, var(--accent-color), #5b8fd0);
+    border: none;
+    transition: filter 0.2s ease;
 }
 
-.action-button:hover, .toggle-button:hover {
-    background-color: #355e8a;
+.primary-button:hover {
+    filter: brightness(1.12);
 }
 
-.control-form select, .control-form input[type="date"] {
-    padding: 8px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background-color: #333;
-    color: #e0e0e0;
+.btn-link {
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 999px;
+    background-color: rgba(74,168,255,0.07);
+    color: var(--accent-color);
 }
 
-.chart-controls {
-    margin: 10px 0;
+.btn-link:hover {
+    background-color: rgba(74,168,255,0.16);
 }
 
-.chart-container {
+/* ============================================================
+   KPI CARDS
+   ============================================================ */
+
+.kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.kpi-card {
+    background-color: var(--kpi-bg);
+    border-radius: 12px;
+    padding: 12px 14px;
+
+    box-shadow: 0 2px 6px var(--shadow-2);
+}
+
+.kpi-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.kpi-value {
+    font-size: 22px;
+    margin: 4px 0;
+    font-weight: 600;
+}
+
+.kpi-sub {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+/* ============================================================
+   CHART GRID (2×2)
+   ============================================================ */
+
+.charts-row {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+    gap: 18px;
+    margin-bottom: 24px;
+}
+
+.chart-card {
+    background-color: var(--card-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+
+    padding: 12px 14px 16px;
+    box-shadow: 0 2px 6px var(--shadow-2);
+
+    transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+.chart-header {
     display: flex;
-    gap: 20px;
-    margin-bottom: 20px;
-    justify-content: center;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
 }
 
-.chart {
-    max-width: 45%;
-    height: auto;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    object-fit: contain;
-    background-color: #2a2a2a;
+.chart-header h2 {
+    font-size: 15px;
 }
 
-.large-avatar {
-    max-width: 300px;
-    height: auto;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+.chart-card canvas {
+    width: 100% !important;
+    height: 260px !important;
 }
+
+/* Chart timeframe dropdown */
+.chart-timeframe-form select {
+    background-color: var(--card-color);
+    color: var(--text-color);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
+}
+
+/* ============================================================
+   TOTALS TABLE
+   ============================================================ */
 
 .totals-section {
-    margin-bottom: 20px;
+    margin-bottom: 24px;
 }
 
 .totals-table {
     width: 100%;
     border-collapse: collapse;
-    background-color: #2a2a2a;
-    border-radius: 8px;
+    background-color: var(--card-color);
+    border-radius: 12px;
     overflow: hidden;
-}
-
-.totals-table th, .totals-table td {
-    border: 1px solid #444;
-    padding: 10px;
-    text-align: center;
-    color: #e0e0e0;
+    border: 1px solid var(--border-color);
 }
 
 .totals-table th {
-    background-color: #3c6e9f;
-    color: #ffffff;
+    background-color: var(--accent-color);
+    color: white;
+    padding: 10px;
+    font-weight: 600;
+}
+
+.totals-table td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-color);
+    text-align: center;
 }
 
 .totals-table tr:nth-child(even) {
-    background-color: #333;
+    background-color: rgba(255,255,255,0.03);
 }
+
+.delta-positive {
+    color: #70e070;
+}
+
+.delta-negative {
+    color: #e07070;
+}
+
+/* ============================================================
+   BOT CONTROLS
+   ============================================================ */
 
 .bot-controls {
-    background-color: #2a2a2a;
-    padding: 15px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    background-color: var(--card-color);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid var(--border-color);
+    margin-bottom: 24px;
+    box-shadow: 0 2px 6px var(--shadow-2);
 }
 
-.bot-controls .control-form {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+.bot-filter-form select {
+    background-color: var(--card-color);
+    color: var(--text-color);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
 }
 
-.left-controls {
-    display: flex;
-    gap: 10px;
+/* Avatar blur */
+.bot-image.blurred {
+    filter: blur(7px);
 }
 
-.right-controls {
-    display: flex;
-    gap: 10px;
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 700px) {
+    .charts-row {
+        grid-template-columns: 1fr;
+    }
+
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .header-right {
+        align-items: flex-start;
+    }
+}
+#lastSnapshotText {
+    font-size: 13px;
+    color: var(--text-muted);
 }
 
-.bot-controls label {
-    margin-left: 10px;
-    color: #e0e0e0;
-}
+/* ============================================================
+   BOT CARDS (Shared Across Dashboard + Global Trending)
+   ============================================================ */
 
-.bot-controls input[type="checkbox"] {
-    margin-right: 5px;
-}
-
-.bot-content {
-    display: flex;
+.bot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 20px;
+    margin-top: 20px;
 }
 
-.avatar-column {
-    flex: 1;
-    max-width: 300px;
+.bot-card {
+    position: relative;
+    background-color: var(--card-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px;
+    text-align: center;
+    box-shadow: 0 2px 6px var(--shadow-2);
+    transition: transform 0.2s ease;
 }
 
-.history-chart-container {
-    flex: 2;
+.bot-card:hover {
+    transform: scale(1.04);
 }
 
-.bot-detail {
-    padding: 20px;
-    background-color: #2a2a2a;
+.bot-image {
+    width: 100%;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    margin-top: 0;
-    color: #e0e0e0;
+    object-fit: cover;
+    cursor: pointer;
+    transition: filter 0.3s ease;
 }
 
-.bot-detail h2 {
-    color: #3c6e9f;
+.bot-image.blurred {
+    filter: blur(10px);
 }
 
-.bot-detail p {
-    margin: 10px 0;
-    color: #e0e0e0;
+.bot-ranking {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 6px;
+    color: #fff;
+    background-color: rgba(0,0,0,0.55);
 }
 
-@media (max-width: 768px) {
-    .chart-container {
-        flex-direction: column;
-    }
-    .chart {
-        max-width: 100%;
-    }
-    .control-form {
-        flex-direction: column;
-        gap: 10px;
-    }
-    .bot-controls .control-form {
-        flex-direction: column;
-        gap: 10px;
-    }
-    .left-controls, .right-controls {
-        justify-content: center;
-    }
-    .bot-content {
-        flex-direction: column;
-    }
-    .avatar-column, .history-chart-container {
-        max-width: 100%;
-    }
+.bot-ranking.top240 {
+    background-color: #b22222;
+}
+
+.bot-ranking.top480 {
+    background-color: #ff8c00;
+}
+
+.bot-name {
+    font-size: 16px;
+    margin-top: 10px;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.bot-title {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    line-height: 1.3em;
+}
+
+.bot-stats {
+    font-size: 13px;
+    color: var(--text-color);
+}
+
+.details-link {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 999px;
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent-color), #5b8fd0);
+    text-decoration: none;
+}
+
+.details-link:hover {
+    filter: brightness(1.12);
+}
+.layout-container {
+    display: grid;
+    grid-template-columns: 1fr 260px;
+    gap: 30px;
+}
+
+.right-column {
+    position: sticky;
+    top: 110px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+}
+
+.sidebar-box {
+    background-color: var(--card-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 2px 6px var(--shadow-2);
+    padding: 16px;
+}
+
+.sidebar-table td,
+.sidebar-table th {
+    padding: 6px 4px;
+    font-size: 13px;
 }
