@@ -427,10 +427,19 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
     
     </script>
     <script>
-        document.getElementById("authButton").onclick = () => {
-            window.location.href = "/auth-start";
-        };
+        document.getElementById("authButton").addEventListener("click", async () => {
+            const res = await fetch("/reauth", { method: "POST" });
+            const data = await res.json();
+        
+            if (data.success) {
+                alert("Authentication successful! Dashboard will refresh.");
+                location.reload();
+            } else {
+                alert("Authentication failed: " + data.error);
+            }
+        });
     </script>
+        
         
 </body>
 </html>

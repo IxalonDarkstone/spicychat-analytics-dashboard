@@ -22,6 +22,7 @@ from playwright.sync_api import sync_playwright
 from urllib.parse import urlparse
 import hashlib
 import pytz
+import threading
 
 
 # ------------------ Config ------------------
@@ -38,7 +39,7 @@ CHART_TIMEOUT = 300  # Timeout in seconds for chart generation
 AVATAR_BASE_URL = "https://cdn.nd-api.com/avatars"
 # Global flag indicating whether authentication is required
 AUTH_REQUIRED = False
-
+SNAPSHOT_THREAD_STARTED = False
 # Timestamp of the last snapshot taken
 LAST_SNAPSHOT_DATE = None
 
@@ -1712,43 +1713,103 @@ def global_trending():
         author_filter=author_filter
     )
 
+@app.route("/api/snapshot_status")
+def snapshot_status():
+    return jsonify({
+        "auth_required": AUTH_REQUIRED
+    })
+
+@app.route("/reauth", methods=["POST"])
+def reauth():
+    global AUTH_REQUIRED
+
+    try:
+        bearer, guest = capture_auth_credentials()
+        AUTH_REQUIRED = False
+        return jsonify({"success": True})
+    except Exception as e:
+        safe_log(f"Reauth failed: {e}")
+        AUTH_REQUIRED = True
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
     _routes_defined = True
 
 # ------------------ CLI ------------------ 
-def main():
-    setup_logging()
-    # Log script content hash for verification
-    with open(__file__, 'rb') as f:
-        script_hash = hashlib.md5(f.read()).hexdigest()
-    safe_log(f"Script hash: {script_hash}")
+# def main():
+#     setup_logging()
+#     # Log script content hash for verification
+#     with open(__file__, 'rb') as f:
+#         script_hash = hashlib.md5(f.read()).hexdigest()
+#     safe_log(f"Script hash: {script_hash}")
 
-    p = argparse.ArgumentParser(description="SpicyChat analytics with SQLite database and Flask dashboard")
-    p.add_argument("--no_snapshot", action="store_true", help="Skip snapshot")
-    p.add_argument("--no_charts", action="store_true", help="Skip chart generation")
-    p.add_argument("--port", type=int, default=5000, help="Flask server port (default 5000)")
-    args = p.parse_args()
+#     p = argparse.ArgumentParser(description="SpicyChat analytics with SQLite database and Flask dashboard")
+#     p.add_argument("--no_snapshot", action="store_true", help="Skip snapshot")
+#     p.add_argument("--no_charts", action="store_true", help="Skip chart generation")
+#     p.add_argument("--port", type=int, default=5000, help="Flask server port (default 5000)")
+#     args = p.parse_args()
 
-    safe_log(f"Command-line args: no_snapshot={args.no_snapshot}, no_charts={args.no_charts}, port={args.port}")
-    # Verify function availability
-    try:
-        get_bots_data
-        safe_log("get_bots_data function is defined")
-    except NameError:
-        safe_log("get_bots_data function is NOT defined - check script structure")
-    define_routes()  # Define routes only once
+#     safe_log(f"Command-line args: no_snapshot={args.no_snapshot}, no_charts={args.no_charts}, port={args.port}")
+#     # Verify function availability
+#     try:
+#         get_bots_data
+#         safe_log("get_bots_data function is defined")
+#     except NameError:
+#         safe_log("get_bots_data function is NOT defined - check script structure")
+#     define_routes()  # Define routes only once
 
-    if not args.no_snapshot:
+#     if not args.no_snapshot:
+#         try:
+#             take_snapshot(args)
+#         except RuntimeError as e:
+#             logging.error(f"Snapshot failed: {e}. Continuing to start server.")
+#     #if not args.no_charts:
+#         #build_charts(timeframes=["7day", "30day", "current_month", "All"])  # Generate charts for all timeframes
+
+#     safe_log(f"Starting Flask server on http://localhost:{args.port}")
+#     app.run(host="0.0.0.0", port=args.port, debug=False)
+
+def snapshot_scheduler():
+    global AUTH_REQUIRED
+
+    while True:
         try:
-            take_snapshot(args)
-        except RuntimeError as e:
-            logging.error(f"Snapshot failed: {e}. Continuing to start server.")
-    #if not args.no_charts:
-        #build_charts(timeframes=["7day", "30day", "current_month", "All"])  # Generate charts for all timeframes
+            bearer, guest = load_auth_credentials()
 
-    safe_log(f"Starting Flask server on http://localhost:{args.port}")
-    app.run(host="0.0.0.0", port=args.port, debug=False)
+            # If missing or invalid → pause snapshots
+            if not test_auth_credentials(bearer, guest):
+                AUTH_REQUIRED = True
+                safe_log("Snapshot scheduler paused — auth invalid.")
+            else:
+                AUTH_REQUIRED = False
+                safe_log("Auth OK — running hourly snapshot.")
+                try:
+                    take_snapshot({})
+                except Exception as e:
+                    safe_log(f"Snapshot failed: {e}")
+
+        except Exception as e:
+            safe_log(f"Scheduler error: {e}")
+
+        # Wait 1 hour
+        time.sleep(3600)
 
 if __name__ == "__main__":
-    main()
+    setup_logging()
+    ensure_dirs()
+
+    parser = argparse.ArgumentParser(description="SpicyChat Analytics Dashboard")
+    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--host", type=str, default="0.0.0.0")
+    args = parser.parse_args()
+
+    define_routes()
+
+    if not SNAPSHOT_THREAD_STARTED:
+        threading.Thread(target=snapshot_scheduler, daemon=True).start()
+        SNAPSHOT_THREAD_STARTED = True
+
+    safe_log(f"Starting server on {args.host}:{args.port}")
+    app.run(host=args.host, port=args.port)
+
+
