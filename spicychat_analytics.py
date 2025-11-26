@@ -42,8 +42,6 @@ AUTH_REQUIRED = False
 SNAPSHOT_THREAD_STARTED = False
 # Timestamp of the last snapshot taken
 LAST_SNAPSHOT_DATE = None
-CURRENT_PORT = None
-RESTARTING = False
 
 
 # ------------------ Typesense / Trending config ------------------
@@ -92,6 +90,19 @@ def safe_log(message):
         logging.info(message.encode('ascii', errors='replace').decode('ascii'))
 
 # ------------------ Utils ------------------
+def set_last_snapshot_time():
+    ts = datetime.now(CDT).strftime("%Y-%m-%d %I:%M %p")
+    with sqlite3.connect(DATABASE) as conn:
+        c = conn.cursor()
+        c.execute("REPLACE INTO metadata (key, value) VALUES ('last_snapshot', ?)", (ts,))
+        conn.commit()
+
+def get_last_snapshot_time():
+    with sqlite3.connect(DATABASE) as conn:
+        c = conn.cursor()
+        row = c.execute("SELECT value FROM metadata WHERE key='last_snapshot'").fetchone()
+        return row[0] if row else None
+
 def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_after="All"):
     """
     Load snapshot history from DB, compute deltas for the given timeframe,
@@ -454,6 +465,13 @@ def init_db():
             )
         """)
 
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+        """)
+
         conn.commit()
 
 
@@ -755,9 +773,13 @@ def take_snapshot(args, verbose=True):
                 row["created_at"], row["avatar_url"]
             ))
         conn.commit()
-
+        
+        set_last_snapshot_time()
+        safe_log("Last snapshot time updated.")
+        
     if verbose:
         safe_log(f"Snapshot saved for {len(rows_clean)} bots to {DATABASE}")
+    
 
     # --- Refresh Typesense trending cache automatically ---
     try:
@@ -1157,7 +1179,8 @@ def define_routes():
             logging.error(f"Error in get_bots_data: {e}")
             bots, totals_list, total_messages, total_bots, latest_date_from_bots = [], [], 0, 0, None
             
-            
+        last_snapshot = get_last_snapshot_time()
+    
         safe_log(f"Rendering index for {latest} with {len(bots)} bots")
         return render_template(
             "index.html",
@@ -1165,6 +1188,7 @@ def define_routes():
             total_messages=fmt_commas(total_messages),
             total_bots=total_bots,
             totals=totals_data,
+            last_snapshot=last_snapshot,
             bots=bots,
             sort_by=sort_by,
             sort_asc=sort_asc,
@@ -1734,31 +1758,7 @@ def reauth():
         AUTH_REQUIRED = True
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/restart", methods=["POST"])
-def restart_server():
-    global CURRENT_PORT, RESTARTING, SNAPSHOT_THREAD_STARTED
-
-    safe_log("Restart requested by user")
-    RESTARTING = True
-
-    # Disable scheduler thread
-    SNAPSHOT_THREAD_STARTED = False  
-
-    cmd = [sys.executable, __file__, "--port", str(CURRENT_PORT)]
-    safe_log(f"Restart command: {cmd}")
-
-    # Start new process BEFORE shutting down current one
-    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Shut down current server
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func:
-        func()
-
-    return "Restarting...", 200
-
-
-    _routes_defined = True
+    #_routes_defined = True
 
 # ------------------ CLI ------------------ 
 # def main():
@@ -1798,11 +1798,6 @@ def snapshot_scheduler():
     global AUTH_REQUIRED, RESTARTING
 
     while True:
-        # pause scheduler if restarting
-        if RESTARTING:
-            safe_log("Scheduler paused — server restart in progress.")
-            time.sleep(2)
-            continue
 
         try:
             bearer, guest = load_auth_credentials()
