@@ -256,31 +256,57 @@
     </div>
 
     <!-- ACTIVE FILTER CHIPS -->
-    {% if and_tags or not_tags %}
+    <!-- ACTIVE FILTER CHIPS (Creator + AND/NOT Tags) -->
+    {% if and_tags or not_tags or author_filter %}
     <div class="filter-chip-container">
 
+        <!-- CREATOR CHIP -->
+        {% if author_filter %}
+        <span class="filter-chip" style="border-color:#4fa3ff; color:#4fa3ff;">
+            Creator: {{ author_filter }}
+            <a class="filter-chip-x"
+            href="?sort={{ sort_field }}&order={{ order }}
+                    &and={{ and_raw|urlencode }}
+                    &not={{ not_raw|urlencode }}
+                    &tab={{ active_tab }}&page=1">
+                ×
+            </a>
+        </span>
+        {% endif %}
+
+        <!-- AND CHIPS -->
         {% for t in and_tags %}
         <span class="filter-chip">
             {{ t }}
-            <a href="?and={{ (and_tags | reject('equalto', t) | join(',')) | urlencode }}
-                     &not={{ not_raw | urlencode }}
-                     &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1"
-               class="filter-chip-x">×</a>
+            <a class="filter-chip-x"
+            href="?and={{ (and_tags | reject('equalto', t) | join(',')) | urlencode }}
+                    &not={{ not_raw | urlencode }}
+                    &author={{ author_filter|urlencode }}
+                    &sort={{ sort_field }}&order={{ order }}
+                    &tab={{ active_tab }}&page=1">
+                ×
+            </a>
         </span>
         {% endfor %}
 
+        <!-- NOT CHIPS -->
         {% for t in not_tags %}
         <span class="filter-chip" style="border-color:#ff5f5f; color:#ff5f5f;">
             NOT {{ t }}
-            <a href="?not={{ (not_tags | reject('equalto', t) | join(',')) | urlencode }}
-                     &and={{ and_raw | urlencode }}
-                     &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1"
-               class="filter-chip-x">×</a>
+            <a class="filter-chip-x"
+            href="?not={{ (not_tags | reject('equalto', t) | join(',')) | urlencode }}
+                    &and={{ and_raw | urlencode }}
+                    &author={{ author_filter|urlencode }}
+                    &sort={{ sort_field }}&order={{ order }}
+                    &tab={{ active_tab }}&page=1">
+                ×
+            </a>
         </span>
         {% endfor %}
 
     </div>
     {% endif %}
+
 
     <!-- BOT COUNT SUMMARY -->
     <div style="margin: 10px 0 20px 0; font-size:16px; color:#ccc;">
