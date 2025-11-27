@@ -493,18 +493,44 @@ def init_db():
 
 
         safe_log(f"Initialized or updated SQLite database at {DATABASE}")
+# ------------------ Typesense Client Wrapper ------------------
+def multi_search_request(payload):
+    """
+    Wrapper for Typesense's multi_search endpoint using your public API key.
+    """
+    headers = {
+        "X-TYPESENSE-API-KEY": TYPESENSE_KEY,
+        "Content-Type": "application/json",
+    }
+    try:
+        r = requests.post(
+            TYPESENSE_SEARCH_ENDPOINT,
+            headers=headers,
+            json=payload,
+            timeout=10
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        safe_log(f"Typesense request failed: {e}")
+        raise
 
 def save_rank_history_for_date(stamp, ts_map):
     """
-    For the given date (YYYY-MM-DD), fetch Typesense top 10 pages (top 480 bots)
-    and save rank info into bot_rank_history.
-    If a row for (date, bot_id) already exists, we replace it.
+    Save rank info for all bots (top 480) on a given date.
     """
     import sqlite3
 
-    # Fetch top 10 pages from Typesense
-    ts_map = fetch_typesense_top_bots(max_pages=10, per_page=48, use_cache=True)
-
+    # Always fetch fresh top-480 filtered list (Female+NSFW)
+    try:
+        ts_map = fetch_typesense_top_bots(
+            max_pages=10,
+            use_cache=True,
+            filter_female_nsfw=True
+        )
+    except Exception as e:
+        safe_log(f"Rank history: Failed to fetch Typesense data: {e}")
+        return
 
     if not ts_map:
         safe_log(f"No Typesense data available to save rank history for {stamp}")
@@ -520,12 +546,9 @@ def save_rank_history_for_date(stamp, ts_map):
         except:
             continue
 
-        # Only care about top 480 (10 pages) – by construction that's all we fetched,
-        # but we still guard rank>0 just in case.
-        if rank > 0 and rank <= 480:
+        if 1 <= rank <= 480:
             rows.append((stamp, cid, rank))
 
-    # Insert or replace for this date/bot
     cur.executemany(
         "INSERT OR REPLACE INTO bot_rank_history (date, bot_id, rank) VALUES (?, ?, ?)",
         rows
@@ -534,6 +557,7 @@ def save_rank_history_for_date(stamp, ts_map):
     conn.close()
 
     safe_log(f"Saved {len(rows)} rank history rows for {stamp}")
+
 
 # ------------------ Capture ------------------
 def capture_payloads(bearer_token, guest_userid, max_retries=3, delay=5):
@@ -598,51 +622,74 @@ def capture_payloads(bearer_token, guest_userid, max_retries=3, delay=5):
     raise RuntimeError(f"Failed to capture payloads after {max_retries} attempts")
 
 # ------------------ Typesense fetch (Trending) ------------------
-def fetch_typesense_top_bots(max_pages=10, per_page=48, use_cache=True):
+def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=True):
     """
-    Fetch top bots from Typesense (same payload the website uses).
+    Fetch Top Bots from Typesense.
+    Supports filtered mode (Female + NSFW only) and unfiltered mode (all tags).
+    """
+    import json
+    import pathlib
 
-    Returns dict mapping character_id -> info dict, where each info dict includes:
-      - character_id
-      - name, title
-      - num_messages (total)
-      - num_messages_24h (24h)
-      - avatar_url, creator_username, creator_user_id, is_nsfw, link
-      - page  (1-based Typesense page number)
-      - rank  (1-based global rank: 1..max_pages*per_page)
-    Caches raw list to data/public_bots_home_all.json.
-    """
-    # Try cache first
-    try:
-        if use_cache and TRENDS_CACHE.exists():
+    # Separate caches for filtered and unfiltered trending
+    if filter_female_nsfw:
+        TRENDS_CACHE = pathlib.Path("data/ts_filtered_480.json")
+    else:
+        TRENDS_CACHE = pathlib.Path("data/ts_unfiltered_480.json")
+
+    # --------------------
+    # CACHE READ
+    # --------------------
+    if use_cache and TRENDS_CACHE.exists():
+        try:
             with open(TRENDS_CACHE, "r", encoding="utf-8") as f:
                 cached = json.load(f)
-                # Ensure we return a dict keyed by character_id
-                return {b["character_id"]: b for b in cached if "character_id" in b}
-    except Exception as e:
-        logging.debug(f"Error reading trends cache: {e}")
 
-    bearer_token, guest_userid = load_bearer_token()
-    if not bearer_token:
-        logging.warning("No bearer token available to fetch Typesense. Run capture or snapshot first.")
-        return {}
+            # If cached data contains tags and already matches our data model,
+            # return immediately.
+            return {b["character_id"]: b for b in cached if "character_id" in b}
+        except Exception as e:
+            safe_log(f"Failed reading cached Typesense results: {e}")
 
-    headers = {
-        "Authorization": f"Bearer {bearer_token}",
-        "Content-Type": "text/plain",
-        "Accept": "application/json, text/plain, */*",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "X-TYPESENSE-API-KEY": TYPESENSE_KEY,
-    }
+    # --------------------
+    # CACHE WAS MISSING OR INVALID → FULL FETCH
+    # --------------------
+    safe_log("Fetching fresh Top Bots from Typesense...")
 
-    all_bots = []
-    seen = set()
+    ALL_RESULTS = []
 
-    for page in range(1, max_pages + 1):
+    # Set up pagination
+    page = 1
+    per_page = 48  # Typesense usually returns 48 per page
+
+    # -------------------------
+    # Build the filter clause
+    # -------------------------
+    if filter_female_nsfw:
+        filter_clause = (
+            "application_ids:spicychat && tags:![Step-Family] && "
+            "creator_user_id:!['kp:018d4672679e4c0d920ad8349061270c','kp:2f4c9fcbdb0641f3a4b960bfeaf1ea0b'] "
+            "&& type:STANDARD && tags:[`Female`] && tags:[`NSFW`]"
+        )
+    else:
+        filter_clause = (
+            "application_ids:spicychat && tags:![Step-Family] && "
+            "creator_user_id:!['kp:018d4672679e4c0d920ad8349061270c','kp:2f4c9fcbdb0641f3a4b960bfeaf1ea0b'] "
+            "&& type:STANDARD"
+        )
+
+    # --------------------
+    # Loop pages
+    # --------------------
+    while page <= max_pages:
         payload = {
             "searches": [{
                 "query_by": "name,title,tags,creator_username,character_id,type",
-                "include_fields": "name,title,tags,creator_username,character_id,avatar_is_nsfw,avatar_url,visibility,definition_visible,num_messages,token_count,rating_score,lora_status,creator_user_id,is_nsfw,type,sub_characters_count,group_size_category,num_messages_24h",
+                "include_fields": (
+                    "name,title,tags,creator_username,character_id,avatar_is_nsfw,avatar_url,"
+                    "visibility,definition_visible,num_messages,token_count,rating_score,lora_status,"
+                    "creator_user_id,is_nsfw,type,sub_characters_count,group_size_category,"
+                    "num_messages_24h"
+                ),
                 "use_cache": True,
                 "highlight_fields": "none",
                 "enable_highlight_v1": False,
@@ -650,76 +697,70 @@ def fetch_typesense_top_bots(max_pages=10, per_page=48, use_cache=True):
                 "collection": "public_characters_alias",
                 "q": "*",
                 "facet_by": "definition_size_category,group_size_category,tags,translated_languages",
-                "filter_by": "application_ids:spicychat && tags:![Step-Family] && creator_user_id:!['kp:018d4672679e4c0d920ad8349061270c','kp:2f4c9fcbdb0641f3a4b960bfeaf1ea0b'] && type:STANDARD && tags:[`Female`] && tags:[`NSFW`]",
+                "filter_by": filter_clause,
                 "max_facet_values": 100,
                 "page": page,
                 "per_page": per_page,
             }]
         }
 
-        try:
-            resp = requests.post(TYPESENSE_SEARCH_ENDPOINT, headers=headers, json=payload, timeout=15)
-        except requests.RequestException as e:
-            logging.error(f"Typesense request failed page {page}: {e}")
+        result = multi_search_request(payload)
+        results_page = result.get("results", [])
+        if not results_page:
             break
 
-        if resp.status_code != 200:
-            logging.warning(f"Typesense returned {resp.status_code} for page {page}: {resp.text[:200]}")
-            break
-
-        try:
-            data = resp.json()
-        except Exception as e:
-            logging.error(f"Invalid JSON from Typesense page {page}: {e}")
-            break
-
-        hits = data.get("results", [{}])[0].get("hits", [])
+        hits = results_page[0].get("hits", [])
         if not hits:
             break
 
-        for idx, hit in enumerate(hits, start=1):
-            doc = hit.get("document", {})
-            cid = doc.get("character_id") or doc.get("characterId") or ""
+        # --------------------
+        # Build bot list
+        # --------------------
+        for obj in hits:
+            doc = obj.get("document")
+            if not doc:
+                continue
+
+            cid = doc.get("character_id")
             if not cid:
                 continue
-            if cid in seen:
-                continue
-            seen.add(cid)
 
-            # Global rank across all pages
-            rank = (page - 1) * per_page + idx
+            rank = len(ALL_RESULTS) + 1
 
             bot = {
                 "character_id": cid,
-                "name": doc.get("name", "").strip(),
-                "title": doc.get("title", ""),
+                "name": (doc.get("name") or "").strip(),
+                "title": doc.get("title") or "",
                 "num_messages": doc.get("num_messages", 0) or 0,
                 "num_messages_24h": doc.get("num_messages_24h", 0) or 0,
-                "avatar_url": doc.get("avatar_url", ""),
-                "creator_username": doc.get("creator_username", ""),
-                "creator_user_id": doc.get("creator_user_id", ""),
-                "tags": doc.get("tags", []) or [],   # ← NEW
+                "avatar_url": doc.get("avatar_url") or "",
+                "creator_username": doc.get("creator_username") or "",
+                "creator_user_id": doc.get("creator_user_id") or "",
+                "tags": doc.get("tags", []) or [],      # <-- IMPORTANT!
                 "is_nsfw": bool(doc.get("is_nsfw", False)),
                 "link": f"https://spicychat.ai/chat/{cid}",
                 "page": page,
                 "rank": rank,
             }
 
-            all_bots.append(bot)
+            ALL_RESULTS.append(bot)
 
-        logging.debug(f"Fetched page {page} -> {len(hits)} hits, total collected {len(all_bots)} so far")
-        time.sleep(0.35)  # polite rate limit
+        page += 1
 
-    # Save cache as a flat list
+    # --------------------
+    # CACHE WRITE
+    # --------------------
     try:
         TRENDS_CACHE.parent.mkdir(parents=True, exist_ok=True)
         with open(TRENDS_CACHE, "w", encoding="utf-8") as f:
-            json.dump(all_bots, f, indent=2, ensure_ascii=False)
+            json.dump(ALL_RESULTS, f, indent=2)
+        safe_log(f"Saved {len(ALL_RESULTS)} bots to Typesense cache.")
     except Exception as e:
-        logging.debug(f"Failed saving trends cache: {e}")
+        safe_log(f"Failed writing Typesense cache: {e}")
 
-    # Return dict keyed by character_id
-    return {b["character_id"]: b for b in all_bots}
+    # Return as dict keyed by character_id
+    return {b["character_id"]: b for b in ALL_RESULTS}
+
 
 # ------------------ Snapshot ------------------
 def sanitize_rows(rows):
@@ -1591,10 +1632,10 @@ def trending():
 
 
     # First try cache; if it looks empty, force a live fetch
-    ts_map = fetch_typesense_top_bots(max_pages=10, per_page=per_page, use_cache=True)
+    ts_map = fetch_typesense_top_bots(max_pages=10, use_cache=True)
     if not ts_map:
         safe_log("Trending: cached Typesense results are empty, forcing fresh fetch without cache")
-        ts_map = fetch_typesense_top_bots(max_pages=10, per_page=per_page, use_cache=False)
+        ts_map = fetch_typesense_top_bots(max_pages=10,  use_cache=False)
 
     ts_list = list(ts_map.values())
 
@@ -1696,10 +1737,28 @@ def trending():
 
 @app.route("/global-trending")
 def global_trending():
-    ts_map = fetch_typesense_top_bots(max_pages=10, use_cache=True)
-    ts_list = list(ts_map.values())
+    # ---------------------------------------------------------
+    # FETCH #1 (Filtered): Only Female + NSFW bots to DISPLAY
+    # ---------------------------------------------------------
+    ts_map_filtered = fetch_typesense_top_bots(
+        max_pages=10,
+        use_cache=True,
+        filter_female_nsfw=True
+    )
+    ts_list = list(ts_map_filtered.values())
 
-    # --------- Sorting ---------
+    # ---------------------------------------------------------
+    # FETCH #2 (Unfiltered): ALL trending bots for TAG sidebar
+    # ---------------------------------------------------------
+    ts_map_all = fetch_typesense_top_bots(
+        max_pages=10,
+        use_cache=True,
+        filter_female_nsfw=False
+    )
+
+    # ---------------------------------------------------------
+    # Sorting
+    # ---------------------------------------------------------
     sort_field = request.args.get("sort", "rank")
     order = request.args.get("order", "asc")
     reverse = (order == "desc")
@@ -1711,7 +1770,9 @@ def global_trending():
     else:
         ts_list.sort(key=lambda b: int(b.get("rank") or 999999), reverse=reverse)
 
-    # --------- Filters ---------
+    # ---------------------------------------------------------
+    # Filtering by author & tag
+    # ---------------------------------------------------------
     author_filter = request.args.get("author")
     tag_filter = request.args.get("tag")
 
@@ -1721,16 +1782,20 @@ def global_trending():
     if tag_filter:
         ts_list = [b for b in ts_list if tag_filter in (b.get("tags") or [])]
 
-    # --------- Pagination ---------
+    # ---------------------------------------------------------
+    # Pagination
+    # ---------------------------------------------------------
     PER_PAGE = 48
     page = int(request.args.get("page", 1))
     total_pages = max((len(ts_list) - 1) // PER_PAGE + 1, 1)
-
     page = max(1, min(page, total_pages))
+
     start = (page - 1) * PER_PAGE
     end = start + PER_PAGE
 
-    # Normalize avatar URLs
+    # ---------------------------------------------------------
+    # Avatar normalization for displayed bots
+    # ---------------------------------------------------------
     page_items = []
     for bot in ts_list[start:end]:
         raw = bot.get("avatar_url", "")
@@ -1739,23 +1804,29 @@ def global_trending():
             bot["avatar_url"] = f"{AVATAR_BASE_URL}/{filename}"
         else:
             bot["avatar_url"] = f"{AVATAR_BASE_URL}/default-avatar.png"
+
         page_items.append(bot)
 
-    # --------- Creator leaderboard ---------
+    # ---------------------------------------------------------
+    # Creator leaderboard (from filtered trending dataset)
+    # ---------------------------------------------------------
     creator_counts = {}
-    for bot in ts_map.values():   # count from ALL bots
+    for bot in ts_map_filtered.values():   # COMES FROM FILTERED LIST
         creator = bot.get("creator_username", "")
         if creator:
             creator_counts[creator] = creator_counts.get(creator, 0) + 1
 
     creators_sorted = sorted(
         [{"creator": c, "count": n} for c, n in creator_counts.items()],
-        key=lambda x: x["count"], reverse=True
+        key=lambda x: x["count"],
+        reverse=True
     )
 
-    # --------- Tag frequency leaderboard ---------
+    # ---------------------------------------------------------
+    # TAG leaderboard (from UNFILTERED ALL-BOTS dataset)
+    # ---------------------------------------------------------
     tag_counts = {}
-    for bot in ts_map.values():   # ALL bots, not filtered list
+    for bot in ts_map_all.values():        # IMPORTANT: UNFILTERED DATA HERE
         tags = bot.get("tags", [])
         if tags:
             for tag in tags:
@@ -1767,6 +1838,9 @@ def global_trending():
         reverse=True
     )
 
+    # ---------------------------------------------------------
+    # Render template
+    # ---------------------------------------------------------
     return render_template(
         "global_trending.html",
         bots=page_items,
@@ -1779,6 +1853,8 @@ def global_trending():
         author_filter=author_filter,
         tag_filter=tag_filter
     )
+
+
 
 
 @app.route("/reauth", methods=["POST"])
