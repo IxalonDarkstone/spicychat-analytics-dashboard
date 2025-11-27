@@ -767,6 +767,8 @@ def sanitize_rows(rows):
     return [{k: r.get(k, "") for k in ALLOWED_FIELDS} for r in rows]
 
 def take_snapshot(args, verbose=True):
+    global AUTH_REQUIRED
+
     ensure_dirs()
     init_db()
 
@@ -775,17 +777,42 @@ def take_snapshot(args, verbose=True):
     stamp = snapshot_time.strftime("%Y-%m-%d")
     safe_log(f"Starting snapshot for {stamp} in CDT")
 
-    try:
-        bearer_token, guest_userid = capture_auth_credentials()
-        payloads = capture_payloads(bearer_token, guest_userid)
-    except RuntimeError as e:
-        logging.warning(f"No payloads captured: {e}. Proceeding with empty dataset.")
-        payloads = []
+    # ----------------------------------------------------
+    # AUTH FIX: Do NOT call capture_auth_credentials()
+    #          Use saved credentials ONLY.
+    # ----------------------------------------------------
+    bearer_token, guest_userid = load_auth_credentials()
 
-    if not payloads:
-        logging.warning("No payloads captured from API. Saving empty snapshot.")
+    if not bearer_token or not guest_userid:
+        safe_log("No saved auth credentials — marking auth required.")
+        AUTH_REQUIRED = True
         return DATABASE
 
+    if not test_auth_credentials(bearer_token, guest_userid):
+        safe_log("Saved credentials invalid — marking auth required.")
+        AUTH_REQUIRED = True
+        return DATABASE
+
+    # If valid → proceed
+    AUTH_REQUIRED = False
+
+    # ----------------------------------------------------
+    # Payload capture (unchanged)
+    # ----------------------------------------------------
+    try:
+        payloads = capture_payloads(bearer_token, guest_userid)
+    except RuntimeError as e:
+        logging.warning(f"No payloads captured: {e}. Marking auth required.")
+        AUTH_REQUIRED = True
+        return DATABASE
+
+    if not payloads:
+        logging.warning("Snapshot: no payloads found.")
+        return DATABASE
+
+    # -------------------------------
+    # Flatten and clean rows (unchanged)
+    # -------------------------------
     items = []
     for pl in payloads:
         flatten_items(pl, items)
@@ -798,9 +825,11 @@ def take_snapshot(args, verbose=True):
         if num is None or not bot_id:
             logging.debug(f"Skipping item due to missing num_messages or bot_id: {d}")
             continue
+
         created_at = get_created_at(d)
         if created_at:
             created_at = pd.Timestamp(created_at, tz="UTC").tz_convert(CDT).isoformat()
+
         row = {
             "date": stamp,
             "bot_id": bot_id,
@@ -811,15 +840,20 @@ def take_snapshot(args, verbose=True):
             "created_at": created_at,
             "avatar_url": get_avatar_url(d)
         }
+
         if bot_id in seen:
             logging.debug(f"Skipping duplicate bot_id: {bot_id}")
             continue
+
         seen.add(bot_id)
         rows.append(row)
 
     rows_clean = sanitize_rows(rows)
     logging.debug(f"Sanitized rows: {len(rows_clean)}")
 
+    # -------------------------------
+    # DB write (UNCHANGED)
+    # -------------------------------
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
         c.execute("DELETE FROM bots WHERE date = ?", (stamp,))
@@ -833,35 +867,35 @@ def take_snapshot(args, verbose=True):
                 row["created_at"], row["avatar_url"]
             ))
         conn.commit()
-        
+
         set_last_snapshot_time()
         safe_log("Last snapshot time updated.")
-        
+
     if verbose:
         safe_log(f"Snapshot saved for {len(rows_clean)} bots to {DATABASE}")
-    
 
-    # --- Refresh Typesense trending cache automatically ---
+    # -------------------------------
+    # Typesense cache refresh (UNCHANGED)
+    # -------------------------------
     try:
         safe_log("Refreshing Typesense trending cache (top 480 bots)")
         ts_map = fetch_typesense_top_bots(max_pages=10, use_cache=False)
         safe_log(f"Typesense trending cache updated successfully ({len(ts_map)} entries)")
-
     except Exception as e:
         logging.error(f"Failed to refresh Typesense trending cache: {e}")
         ts_map = {}
 
-    # ------------------------------------------------
-    # Save rank history
-    # ------------------------------------------------
+    # -------------------------------
+    # Save rank history (UNCHANGED)
+    # -------------------------------
     try:
         save_rank_history_for_date(stamp, ts_map)
     except Exception as e:
         logging.error(f"Error saving rank history: {e}")
 
-    # ------------------------------------------------
-    # Save Top-240 and Top-480 history (corrected logic)
-    # ------------------------------------------------
+    # -------------------------------
+    # Save Top-240 & Top-480 history (UNCHANGED)
+    # -------------------------------
     try:
         your_bot_ids = {row["bot_id"] for row in rows_clean}
         count_top240 = 0
@@ -904,9 +938,10 @@ def take_snapshot(args, verbose=True):
     except Exception as e:
         logging.error(f"Error saving top-level histories: {e}")
 
-    # ------------------------------------------------
-    # FINAL STEP — Set last snapshot timestamp
-    # ------------------------------------------------
+    # -------------------------------
+    # Final timestamp update (UNCHANGED)
+    # -------------------------------
+    global LAST_SNAPSHOT_DATE
     LAST_SNAPSHOT_DATE = snapshot_time.isoformat()
     safe_log(f"Snapshot complete at {LAST_SNAPSHOT_DATE}")
 
@@ -1995,15 +2030,22 @@ if __name__ == "__main__":
 
     define_routes()
 
-    # STARTUP SNAPSHOT
-    if NO_SNAPSHOT_MODE:
-        safe_log("⏭  Startup snapshot skipped (--no_snapshot enabled)")
+    # Validate existing credentials BEFORE any snapshot happens
+    bearer, guest = load_auth_credentials()
+    if not test_auth_credentials(bearer, guest):
+        AUTH_REQUIRED = True
+        safe_log("Startup auth invalid — snapshots paused until reauth.")
     else:
+        safe_log("Startup auth valid.")
+
+    # STARTUP SNAPSHOT (only if auth good)
+    if not NO_SNAPSHOT_MODE and not AUTH_REQUIRED:
         safe_log("Running startup snapshot…")
         try:
             take_snapshot({})
         except Exception as e:
             safe_log(f"Startup snapshot failed: {e}")
+
 
     # HOURLY SCHEDULER (always runs)
     if not SNAPSHOT_THREAD_STARTED:
