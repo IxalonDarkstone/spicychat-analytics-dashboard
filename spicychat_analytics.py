@@ -1738,16 +1738,14 @@ def trending():
 @app.route("/global-trending")
 def global_trending():
 
-    # ---------------------------------------------------------
-    # Persistent tab (Creators or Tags)
-    # ---------------------------------------------------------
+    # --------------------------------------------
+    # Persistent tab (creators or tags)
+    # --------------------------------------------
     active_tab = request.args.get("tab", "creators")
-    
 
-    # ---------------------------------------------------------
-    # FETCH #1 (Filtered Trending):
-    # Only Female + NSFW bots shown in trending grid.
-    # ---------------------------------------------------------
+    # --------------------------------------------
+    # Fetch trending: filtered (female+nsfw) for grid
+    # --------------------------------------------
     ts_map_filtered = fetch_typesense_top_bots(
         max_pages=10,
         use_cache=True,
@@ -1755,19 +1753,18 @@ def global_trending():
     )
     ts_list = list(ts_map_filtered.values())
 
-    # ---------------------------------------------------------
-    # FETCH #2 (Unfiltered for TAGS):
-    # Sidebar tags must use ALL trending bots, not only filtered.
-    # ---------------------------------------------------------
+    # --------------------------------------------
+    # Fetch unfiltered for TAG sidebar
+    # --------------------------------------------
     ts_map_all = fetch_typesense_top_bots(
         max_pages=10,
         use_cache=True,
         filter_female_nsfw=False
     )
 
-    # ---------------------------------------------------------
+    # --------------------------------------------
     # Sorting
-    # ---------------------------------------------------------
+    # --------------------------------------------
     sort_field = request.args.get("sort", "rank")
     order = request.args.get("order", "asc")
     reverse = (order == "desc")
@@ -1779,21 +1776,43 @@ def global_trending():
     else:  # rank
         ts_list.sort(key=lambda b: int(b.get("rank") or 999999), reverse=reverse)
 
-    # ---------------------------------------------------------
-    # Author and Tag Filtering
-    # ---------------------------------------------------------
-    author_filter = request.args.get("author")
-    tag_filter = request.args.get("tag")
+    # --------------------------------------------
+    # AND / NOT TAG FILTERING
+    # --------------------------------------------
+    and_raw = request.args.get("and", "")
+    not_raw = request.args.get("not", "")
 
+    and_tags = [t.strip().lower() for t in and_raw.split(",") if t.strip()]
+    not_tags = [t.strip().lower() for t in not_raw.split(",") if t.strip()]
+
+    def tag_match(bot):
+        bot_tags = [t.lower() for t in (bot.get("tags") or [])]
+
+        # AND: must contain all
+        for t in and_tags:
+            if t not in bot_tags:
+                return False
+
+        # NOT: must contain none
+        for t in not_tags:
+            if t in bot_tags:
+                return False
+
+        return True
+
+    if and_tags or not_tags:
+        ts_list = [b for b in ts_list if tag_match(b)]
+
+    # --------------------------------------------
+    # Author filter (as-is)
+    # --------------------------------------------
+    author_filter = request.args.get("author")
     if author_filter:
         ts_list = [b for b in ts_list if b.get("creator_username") == author_filter]
 
-    if tag_filter:
-        ts_list = [b for b in ts_list if tag_filter in (b.get("tags") or [])]
-
-    # ---------------------------------------------------------
+    # --------------------------------------------
     # Pagination
-    # ---------------------------------------------------------
+    # --------------------------------------------
     PER_PAGE = 48
     page = int(request.args.get("page", 1))
 
@@ -1804,8 +1823,6 @@ def global_trending():
     end = start + PER_PAGE
 
     page_items = []
-
-    # Normalize avatars + slice
     for bot in ts_list[start:end]:
         raw = bot.get("avatar_url", "")
         if raw:
@@ -1815,9 +1832,9 @@ def global_trending():
             bot["avatar_url"] = f"{AVATAR_BASE_URL}/default-avatar.png"
         page_items.append(bot)
 
-    # ---------------------------------------------------------
-    # Creator Leaderboard (Filtered dataset ONLY)
-    # ---------------------------------------------------------
+    # --------------------------------------------
+    # Creator leaderboard (filtered trending only)
+    # --------------------------------------------
     creator_counts = {}
     for bot in ts_map_filtered.values():
         creator = bot.get("creator_username", "")
@@ -1826,27 +1843,24 @@ def global_trending():
 
     creators_sorted = sorted(
         [{"creator": c, "count": n} for c, n in creator_counts.items()],
-        key=lambda x: x["count"],
-        reverse=True
+        key=lambda x: x["count"], reverse=True
     )
 
-    # ---------------------------------------------------------
-    # Tag Leaderboard (Unfiltered dataset)
-    # ---------------------------------------------------------
+    # --------------------------------------------
+    # Tag leaderboard (unfiltered trending)
+    # --------------------------------------------
+    # Tag leaderboard (filtered trending — matches grid)
     tag_counts = {}
-    for bot in ts_map_all.values():
+    for bot in ts_map_filtered.values():
         for t in bot.get("tags", []) or []:
             tag_counts[t] = tag_counts.get(t, 0) + 1
 
+
     tags_sorted = sorted(
         [{"tag": t, "count": c} for t, c in tag_counts.items()],
-        key=lambda x: x["count"],
-        reverse=True
+        key=lambda x: x["count"], reverse=True
     )
 
-    # ---------------------------------------------------------
-    # Render template
-    # ---------------------------------------------------------
     return render_template(
         "global_trending.html",
         bots=page_items,
@@ -1857,9 +1871,15 @@ def global_trending():
         sort_field=sort_field,
         order=order,
         author_filter=author_filter,
-        tag_filter=tag_filter,
-        active_tab=active_tab
+        and_raw=and_raw,
+        not_raw=not_raw,
+        and_tags=and_tags,
+        not_tags=not_tags,
+        active_tab=active_tab,
+        ts_total=len(ts_map_filtered),
+        filtered_total=len(ts_list)
     )
+
 
 
 @app.route("/reauth", methods=["POST"])

@@ -27,7 +27,7 @@
             min-width: 0;
         }
 
-        /* RIGHT COLUMN (sidebar) */
+        /* RIGHT SIDEBAR */
         .right-column {
             width: 330px;
             flex-shrink: 0;
@@ -38,7 +38,7 @@
             padding-right: 4px;
         }
 
-        /* SIDEBAR BOX */
+        /* SIDEBAR CARD */
         .sidebar-box {
             background-color: var(--card-color);
             border: 1px solid var(--border-color);
@@ -65,7 +65,6 @@
             cursor: pointer;
             font-size: 14px;
         }
-
         .sidebar-tab.active {
             color: var(--accent-color);
             font-weight: bold;
@@ -152,12 +151,42 @@
             text-decoration: none;
         }
 
+        /* FILTER CHIPS */
+        .filter-chip-container {
+            margin-bottom: 20px;
+        }
+
+        .filter-chip {
+            background: var(--card-color);
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            padding: 4px 10px;
+            margin: 4px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .filter-chip-x {
+            margin-left: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            color: #ff5f5f;
+            font-weight: bold;
+        }
+
         /* PAGINATION */
         .pagination {
             display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
+            gap: 16px;
+            margin: 24px 0;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
         }
+
         .pagination a,
         .pagination span {
             padding: 6px 14px;
@@ -167,6 +196,7 @@
             font-weight: bold;
             text-decoration: none;
         }
+
         .pagination span {
             opacity: 0.6;
             pointer-events: none;
@@ -187,239 +217,291 @@
         </div>
 
         <div class="header-right">
-            <a href="/" class="primary-button">Back to Dashboard</a>
+            <a href="/" class="primary-button">Back</a>
         </div>
     </header>
 
-    <!-- SORTING FORM -->
-    <form method="get" class="bot-filter-form" style="margin-bottom:20px; display:flex; gap:20px;">
+    <!-- SORT BAR -->
+    <form method="get" class="bot-filter-form"
+          style="margin-bottom:20px; display:flex; gap:20px;">
 
         <label>
             Sort by:
             <select name="sort">
-                <option value="rank" {% if sort_field == "rank" %}selected{% endif %}>Rank</option>
+                <option value="rank"     {% if sort_field == "rank" %}selected{% endif %}>Rank</option>
                 <option value="messages" {% if sort_field == "messages" %}selected{% endif %}>Messages</option>
-                <option value="author" {% if sort_field == "author" %}selected{% endif %}>Author</option>
+                <option value="author"   {% if sort_field == "author" %}selected{% endif %}>Author</option>
             </select>
         </label>
 
         <label>
             Order:
             <select name="order">
-                <option value="asc" {% if order == "asc" %}selected{% endif %}>Ascending</option>
+                <option value="asc"  {% if order == "asc" %}selected{% endif %}>Ascending</option>
                 <option value="desc" {% if order == "desc" %}selected{% endif %}>Descending</option>
             </select>
         </label>
 
-        {% if author_filter %}<input type="hidden" name="author" value="{{ author_filter }}">{% endif %}
-        {% if tag_filter %}<input type="hidden" name="tag" value="{{ tag_filter }}">{% endif %}
-
-        <!-- Persist active tab -->
+        <!-- persist filters -->
+        <input type="hidden" name="and" value="{{ and_raw }}">
+        <input type="hidden" name="not" value="{{ not_raw }}">
         <input type="hidden" name="tab" value="{{ active_tab }}">
 
         <button class="primary-button" type="submit">Apply</button>
     </form>
 
-    <!-- RESET FILTER BUTTON -->
+    <!-- RESET FILTERS -->
     <div style="margin-bottom:20px;">
         <a href="/global-trending" class="primary-button">Reset Filters</a>
     </div>
 
+    <!-- ACTIVE FILTER CHIPS -->
+    {% if and_tags or not_tags %}
+    <div class="filter-chip-container">
 
+        {% for t in and_tags %}
+        <span class="filter-chip">
+            {{ t }}
+            <a href="?and={{ (and_tags | reject('equalto', t) | join(',')) | urlencode }}
+                     &not={{ not_raw | urlencode }}
+                     &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1"
+               class="filter-chip-x">×</a>
+        </span>
+        {% endfor %}
 
-    <!-- MAIN LAYOUT -->
+        {% for t in not_tags %}
+        <span class="filter-chip" style="border-color:#ff5f5f; color:#ff5f5f;">
+            NOT {{ t }}
+            <a href="?not={{ (not_tags | reject('equalto', t) | join(',')) | urlencode }}
+                     &and={{ and_raw | urlencode }}
+                     &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1"
+               class="filter-chip-x">×</a>
+        </span>
+        {% endfor %}
+
+    </div>
+    {% endif %}
+
+    <!-- BOT COUNT SUMMARY -->
+    <div style="margin: 10px 0 20px 0; font-size:16px; color:#ccc;">
+        {% if and_tags or not_tags or author_filter %}
+            Showing <strong>{{ filtered_total }}</strong> bots
+        {% else %}
+            Showing all <strong>{{ ts_total }}</strong> bots
+        {% endif %}
+    </div>
+
+    <!-- LAYOUT -->
     <div class="layout-container">
 
-        <!-- LEFT: BOT GRID -->
+        <!-- LEFT COLUMN -->
         <div class="left-column">
 
+            <!-- BOT GRID -->
             <div class="bot-grid">
                 {% for b in bots %}
                 <div class="bot-card">
-            
-                    <!-- Rank badge -->
+
                     <div class="bot-ranking">#{{ b.rank }}</div>
-            
-                    <!-- Avatar -->
+
                     <a href="{{ b.link }}" target="_blank">
                         <img class="bot-image" src="{{ b.avatar_url }}" alt="{{ b.name }}">
                     </a>
-            
-                    <!-- Name & title -->
+
                     <div class="bot-name">{{ b.name }}</div>
                     <div class="bot-title">{{ b.title }}</div>
-            
-                    <!-- Stats -->
+
                     <div class="bot-stats">Total: {{ b.num_messages }}</div>
-            
+
                     <div class="bot-stats">
                         Author:
                         <a href="https://spicychat.ai/creator/{{ b.creator_username }}" target="_blank">
                             {{ b.creator_username }}
                         </a>
                     </div>
-            
-                    <!-- Tags (each tag is clickable filter) -->
+
                     {% if b.tags %}
                     <div class="bot-tags">
                         {% for tag in b.tags %}
-                        <a href="{{ url_for('global_trending',
-                                            tag=tag|urlencode,
-                                            sort=sort_field,
-                                            order=order,
-                                            page=1,
-                                            tab=active_tab) }}">
+                        <a href="?and={{ (and_raw + ',' + tag)|urlencode if and_raw else tag|urlencode }}
+                                 &not={{ not_raw|urlencode }}
+                                 &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1">
                             <span class="tag">{{ tag }}</span>
                         </a>
-
                         {% endfor %}
                     </div>
                     {% endif %}
-            
-                    <!-- Chat button -->
+
                     <a href="{{ b.link }}" target="_blank" class="details-link">Chat</a>
-            
                 </div>
                 {% endfor %}
-            </div> <!-- bot-grid -->
-            
-        
-            <!-- PAGINATION BELOW CARD GRID -->
-            {% if total_pages > 1 %}
-            <div class="pagination"
-                style="display:flex; gap:16px; margin:24px 0; justify-content:center; align-items:center; flex-wrap:wrap;">
+            </div>
 
-                <!-- FIRST PAGE -->
+            <!-- PAGINATION -->
+            {% if total_pages > 1 %}
+            <div class="pagination">
+
+                <!-- First -->
                 {% if page > 1 %}
-                <a class="primary-button"
-                href="{{ url_for('global_trending',
-                        page=1,
-                        sort=sort_field,
-                        order=order,
-                        author=author_filter,
-                        tag=tag_filter,
-                        tab=active_tab) }}">
+                <a href="{{ url_for('global_trending',
+                                     page=1,
+                                     sort=sort_field, order=order,
+                                     and=and_raw, not=not_raw,
+                                     tab=active_tab) }}">
                     ⏮ First
                 </a>
                 {% else %}
-                <span class="primary-button" style="opacity:0.5; pointer-events:none;">⏮ First</span>
+                <span>⏮ First</span>
                 {% endif %}
 
-                <!-- PREV PAGE -->
+                <!-- Prev -->
                 {% if page > 1 %}
-                <a class="primary-button"
-                href="{{ url_for('global_trending',
-                        page=page-1,
-                        sort=sort_field,
-                        order=order,
-                        author=author_filter,
-                        tag=tag_filter,
-                        tab=active_tab) }}">
+                <a href="{{ url_for('global_trending',
+                                     page=page-1,
+                                     sort=sort_field, order=order,
+                                     and=and_raw, not=not_raw,
+                                     tab=active_tab) }}">
                     ◀ Prev
                 </a>
                 {% else %}
-                <span class="primary-button" style="opacity:0.5; pointer-events:none;">◀ Prev</span>
+                <span>◀ Prev</span>
                 {% endif %}
 
-                <!-- PAGE X of Y -->
-                <span style="font-size:16px; color:var(--text-muted); margin:0 12px;">
+                <!-- Page X of Y -->
+                <span style="color:#ffffff; font-size:17px; font-weight:600;">
                     Page {{ page }} of {{ total_pages }}
                 </span>
 
-                <!-- NEXT PAGE -->
+                <!-- Next -->
                 {% if page < total_pages %}
-                <a class="primary-button"
-                href="{{ url_for('global_trending',
-                        page=page+1,
-                        sort=sort_field,
-                        order=order,
-                        author=author_filter,
-                        tag=tag_filter,
-                        tab=active_tab) }}">
+                <a href="{{ url_for('global_trending',
+                                     page=page+1,
+                                     sort=sort_field, order=order,
+                                     and=and_raw, not=not_raw,
+                                     tab=active_tab) }}">
                     Next ▶
                 </a>
                 {% else %}
-                <span class="primary-button" style="opacity:0.5; pointer-events:none;">Next ▶</span>
+                <span>Next ▶</span>
                 {% endif %}
 
-                <!-- LAST PAGE -->
+                <!-- Last -->
                 {% if page < total_pages %}
-                <a class="primary-button"
-                href="{{ url_for('global_trending',
-                        page=total_pages,
-                        sort=sort_field,
-                        order=order,
-                        author=author_filter,
-                        tag=tag_filter,
-                        tab=active_tab) }}">
+                <a href="{{ url_for('global_trending',
+                                     page=total_pages,
+                                     sort=sort_field, order=order,
+                                     and=and_raw, not=not_raw,
+                                     tab=active_tab) }}">
                     Last ⏭
                 </a>
                 {% else %}
-                <span class="primary-button" style="opacity:0.5; pointer-events:none;">Last ⏭</span>
+                <span>Last ⏭</span>
                 {% endif %}
 
-                <!-- JUMP TO TOP -->
-                <button class="primary-button" onclick="window.scrollTo({top:0, behavior:'smooth'})">
-                    ↑ Jump to Top
+                <!-- Jump to Top -->
+                <button class="primary-button"
+                        onclick="window.scrollTo({top:0, behavior:'smooth'})">
+                    ↑ Top
                 </button>
 
             </div>
             {% endif %}
+        </div>
 
-        
-        </div> <!-- left-column -->
-        
-
-        <!-- RIGHT: SIDEBAR -->
+        <!-- RIGHT SIDEBAR -->
         <div class="right-column">
+
             <div class="sidebar-box">
 
                 <!-- TABS -->
                 <div class="sidebar-tabs">
-                    <button class="sidebar-tab {% if active_tab=='creators' %}active{% endif %}" data-tab="creators">Creators</button>
-                    <button class="sidebar-tab {% if active_tab=='tags' %}active{% endif %}" data-tab="tags">Tags</button>
+                    <button class="sidebar-tab {% if active_tab=='creators' %}active{% endif %}"
+                            data-tab="creators">Creators</button>
+                    <button class="sidebar-tab {% if active_tab=='tags' %}active{% endif %}"
+                            data-tab="tags">Tags</button>
                 </div>
 
-                <!-- Creators -->
-                <div id="tab-creators" class="sidebar-tab-content {% if active_tab=='creators' %}active{% endif %}">
+                <!-- CREATORS TAB -->
+                <div id="tab-creators"
+                     class="sidebar-tab-content {% if active_tab=='creators' %}active{% endif %}">
                     <table class="sidebar-table">
                         <thead><tr><th>Creator</th><th>#</th></tr></thead>
                         <tbody>
                         {% for c in creators %}
-                            <tr>
-                                <td><a href="?author={{ c.creator }}&sort={{ sort_field }}&order={{ order }}&tab=creators">{{ c.creator }}</a></td>
-                                <td>{{ c.count }}</td>
-                            </tr>
+                        <tr>
+                            <td>
+                                <a href="?author={{ c.creator|urlencode }}&sort={{ sort_field }}&order={{ order }}&and={{ and_raw }}&not={{ not_raw }}&tab=creators&page=1">
+                                    {{ c.creator }}
+                                </a>
+                                
+                                </a>
+                            </td>
+                            <td>{{ c.count }}</td>
+                        </tr>
                         {% endfor %}
                         </tbody>
                     </table>
                 </div>
 
-                <!-- Tags -->
-                <div id="tab-tags" class="sidebar-tab-content {% if active_tab=='tags' %}active{% endif %}">
+                <!-- TAGS TAB -->
+                <div id="tab-tags"
+                    class="sidebar-tab-content {% if active_tab=='tags' %}active{% endif %}">
+
                     <table class="sidebar-table">
                         <thead>
                             <tr>
-                                <th>Tag</th>
-                                <th>#</th>
+                                <th style="width: 55%;">Tag</th>
+                                <th style="width: 15%;">#</th>
+                                <th style="width: 30%;">Filter</th>
                             </tr>
                         </thead>
+
                         <tbody>
                         {% for t in tags %}
-                            <tr>
-                                <td>
-                                    <a href="?tag={{ t.tag|urlencode }}&sort={{ sort_field }}&order={{ order }}&tab=tags">
-                                        {{ t.tag }}
-                                    </a>
-                                </td>
-                                <td>{{ t.count }}</td>
-                            </tr>
+                        <tr>
+
+                            <!-- Tag name -->
+                            <td>{{ t.tag }}</td>
+
+                            <!-- Count -->
+                            <td>{{ t.count }}</td>
+
+                            <!-- Filter column -->
+                            <td style="text-align:center; white-space:nowrap;">
+
+                                <!-- AND (✓) -->
+                                <a title="Require this tag"
+                                style="color:#74ff74; font-weight:bold; margin-right:12px;"
+                                href="?and={{ (and_raw + ',' + t.tag)|urlencode if and_raw else t.tag|urlencode }}
+                                            &not={{ not_raw|urlencode }}
+                                            &sort={{ sort_field }}&order={{ order }}
+                                            &tab=tags&page=1">
+                                    ✓
+                                </a>
+
+                                <!-- NOT (✕) -->
+                                <a title="Exclude this tag"
+                                style="color:#ff6b6b; font-weight:bold;"
+                                href="?not={{ (not_raw + ',' + t.tag)|urlencode if not_raw else t.tag|urlencode }}
+                                            &and={{ and_raw|urlencode }}
+                                            &sort={{ sort_field }}&order={{ order }}
+                                            &tab=tags&page=1">
+                                    ✕
+                                </a>
+
+                            </td>
+
+                        </tr>
                         {% endfor %}
                         </tbody>
                     </table>
+
                 </div>
+
+
             </div>
-        </div>
+
+        </div> <!-- right-column -->
 
     </div> <!-- layout-container -->
 
@@ -427,18 +509,18 @@
 </div>
 
 <script>
+/* Persistent Tabs */
 document.querySelectorAll(".sidebar-tab").forEach(btn => {
     btn.addEventListener("click", () => {
         const tab = btn.dataset.tab;
 
-        // Switch UI
+        // UI switch
         document.querySelectorAll(".sidebar-tab").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
-
         document.querySelectorAll(".sidebar-tab-content").forEach(c => c.classList.remove("active"));
         document.getElementById("tab-" + tab).classList.add("active");
 
-        // Persist tab in URL
+        // persist in URL
         const params = new URLSearchParams(window.location.search);
         params.set("tab", tab);
         window.history.replaceState({}, "", "?" + params.toString());
