@@ -264,13 +264,14 @@
                     <div class="bot-tags">
                         {% for tag in b.tags %}
                         <a href="{{ url_for('global_trending',
-                                             tag=tag,
-                                             sort=sort_field,
-                                             order=order,
-                                             page=1,
-                                             tab=active_tab) }}">
+                                            tag=tag|urlencode,
+                                            sort=sort_field,
+                                            order=order,
+                                            page=1,
+                                            tab=active_tab) }}">
                             <span class="tag">{{ tag }}</span>
                         </a>
+
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -401,8 +402,11 @@
                         <tbody>
                         {% for t in tags %}
                             <tr>
-                                <td><a href="?tag={{ t.tag }}&sort={{ sort_field }}&order={{ order }}&tab=tags">{{ t.tag }}</a></td>
-                                <td>{{ t.count }}</td>
+                                <td>
+                                    <a href="?tag={{ t.tag|urlencode }}&sort={{ sort_field }}&order={{ order }}&tab=tags">
+                                        {{ t.tag }}
+                                    </a>
+                                </td>                                
                             </tr>
                         {% endfor %}
                         </tbody>

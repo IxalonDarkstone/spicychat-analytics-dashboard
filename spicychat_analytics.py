@@ -1595,7 +1595,7 @@ def take_snapshot_route():
                 self.no_charts = False
                 self.port = 5000
         dummy_args = DummyArgs()
-        take_snapshot(dummy_args, verbose=True)
+        take_snapshot({}, verbose=True)
         safe_log("Snapshot and charts updated successfully")
         sort_by = request.args.get("sort_by", "delta")
         sort_asc = request.args.get("sort_asc", "false")
@@ -1929,8 +1929,10 @@ def reauth():
 def snapshot_scheduler():
     global AUTH_REQUIRED, RESTARTING
 
-    while True:
+    # Wait one full hour before first scheduled snapshot
+    time.sleep(3600)
 
+    while True:
         try:
             bearer, guest = load_auth_credentials()
 
@@ -1952,25 +1954,42 @@ def snapshot_scheduler():
         # Wait 1 hour
         time.sleep(3600)
 
+
 if __name__ == "__main__":
     setup_logging()
     ensure_dirs()
-    init_db()   # <---- ADD THIS
-
+    init_db()
 
     parser = argparse.ArgumentParser(description="SpicyChat Analytics Dashboard")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--host", type=str, default="0.0.0.0")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--no_snapshot",
+        action="store_true",
+        help="Disable automatic snapshot on startup (but keep hourly snapshots)"
+    )
 
-    
+    args = parser.parse_args()
     CURRENT_PORT = args.port
+    NO_SNAPSHOT_MODE = args.no_snapshot
 
     define_routes()
 
+    # STARTUP SNAPSHOT
+    if NO_SNAPSHOT_MODE:
+        safe_log("⏭  Startup snapshot skipped (--no_snapshot enabled)")
+    else:
+        safe_log("Running startup snapshot…")
+        try:
+            take_snapshot({})
+        except Exception as e:
+            safe_log(f"Startup snapshot failed: {e}")
+
+    # HOURLY SCHEDULER (always runs)
     if not SNAPSHOT_THREAD_STARTED:
         threading.Thread(target=snapshot_scheduler, daemon=True).start()
         SNAPSHOT_THREAD_STARTED = True
+        safe_log("Hourly snapshot scheduler started")
 
     safe_log(f"Starting server on {args.host}:{args.port}")
     app.run(host=args.host, port=args.port)
