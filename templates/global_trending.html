@@ -2,58 +2,204 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Global Trending — Top 480 Bots</title>
+    <title>Global Trending — Top Bots</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
     <style>
-        /* Page-scoped container */
+        /* MAIN WRAPPER */
         .global-wrapper .global-container {
-            max-width: none;
-            width: 95%;
+            width: 100%;
+            max-width: 1900px;
             margin: 32px auto;
+            padding: 0 20px;
         }
 
-        /* Two-column responsive layout */
+        /* FLEX LAYOUT */
         .layout-container {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 280px;
+            display: flex;
             gap: 32px;
-            align-items: start;
+            align-items: flex-start;
         }
 
-        @media (max-width: 1400px) {
-            .layout-container {
-                grid-template-columns: 1fr;
-            }
+        /* LEFT COLUMN (cards) */
+        .left-column {
+            flex: 1;
+            min-width: 0;
         }
 
+        /* RIGHT SIDEBAR */
         .right-column {
+            width: 330px;
+            flex-shrink: 0;
             position: sticky;
             top: 110px;
-            max-height: calc(100vh - 160px);
+            height: calc(100vh - 140px);
             overflow-y: auto;
+            padding-right: 4px;
         }
 
+        /* SIDEBAR CARD */
         .sidebar-box {
             background-color: var(--card-color);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 16px;
+            margin-bottom: 24px;
             box-shadow: 0 2px 6px var(--shadow-2);
         }
 
-        .sidebar-box h3 {
-            text-align: center;
+        /* TABS */
+        .sidebar-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
             margin-bottom: 12px;
         }
 
-        .sidebar-table td, .sidebar-table th {
-            padding: 6px 4px;
-            font-size: 13px;
+        .sidebar-tab {
+            flex: 1;
+            padding: 8px 0;
+            text-align: center;
+            background: transparent;
+            color: var(--text-muted);
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .sidebar-tab.active {
+            color: var(--accent-color);
+            font-weight: bold;
+            border-bottom: 2px solid var(--accent-color);
         }
 
-        .creator-filter-link {
+        .sidebar-tab-content {
+            display: none;
+        }
+        .sidebar-tab-content.active {
+            display: block;
+        }
+
+        /* BOT GRID */
+        .bot-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 24px;
+        }
+
+        /* BOT CARD */
+        .bot-card {
+            background-color: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 2px 6px var(--shadow-2);
+        }
+
+        .bot-ranking {
+            font-weight: bold;
+            margin-bottom: 8px;
             color: var(--accent-color);
+        }
+
+        .bot-image {
+            width: 100%;
+            height: 260px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .bot-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .bot-title {
+            font-size: 14px;
+            opacity: 0.8;
+            margin-bottom: 8px;
+        }
+
+        .bot-stats {
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .bot-tags {
+            margin: 10px 0;
+        }
+
+        .tag {
+            background: var(--accent-color);
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 11px;
+            margin: 2px;
+            display: inline-block;
+            color: #000;
+        }
+
+        .details-link {
+            margin-top: 8px;
+            display: inline-block;
+            padding: 6px 12px;
+            background: var(--accent-color);
+            border-radius: 6px;
+            color: #000;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        /* FILTER CHIPS */
+        .filter-chip-container {
+            margin-bottom: 20px;
+        }
+
+        .filter-chip {
+            background: var(--card-color);
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            padding: 4px 10px;
+            margin: 4px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .filter-chip-x {
+            margin-left: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            color: #ff5f5f;
+            font-weight: bold;
+        }
+
+        /* PAGINATION */
+        .pagination {
+            display: flex;
+            gap: 16px;
+            margin: 24px 0;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .pagination a,
+        .pagination span {
+            padding: 6px 14px;
+            background: var(--accent-color);
+            color: #000;
+            border-radius: 8px;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        .pagination span {
+            opacity: 0.6;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -61,165 +207,325 @@
 <body>
 
 <div class="global-wrapper">
-    <div class="container global-container">
+<div class="container global-container">
 
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <h1>Global Trending</h1>
-                <div class="subheader">Top 480 Bots<br> 
-                (NSFW Female)</div>
-            </div>
+    <!-- HEADER -->
+    <header class="header">
+        <div class="header-left">
+            <h1>Global Trending</h1>
+            <div class="subheader">Top 480 Bots (Snapshot)</div>
+        </div>
 
-            <div class="header-right">
-                <a href="/" class="primary-button">Back to Dashboard</a>
-            </div>
-        </header>
+        <div class="header-right">
+            <a href="/" class="primary-button">Back</a>
+        </div>
+    </header>
 
-        <!-- Sorting Controls -->
-        <form method="get" class="bot-filter-form"
-              style="margin-bottom:20px; display:flex; gap:20px;">
+    <!-- SORT BAR -->
+    <form method="get" class="bot-filter-form"
+          style="margin-bottom:20px; display:flex; gap:20px;">
 
-            <label>
-                Sort by:
-                <select name="sort">
-                    <option value="rank" {% if sort_field == "rank" %}selected{% endif %}>Rank</option>
-                    <option value="messages" {% if sort_field == "messages" %}selected{% endif %}>Messages</option>
-                    <option value="author" {% if sort_field == "author" %}selected{% endif %}>Author</option>
-                </select>
-            </label>
+        <label>
+            Sort by:
+            <select name="sort">
+                <option value="rank"     {% if sort_field == "rank" %}selected{% endif %}>Rank</option>
+                <option value="messages" {% if sort_field == "messages" %}selected{% endif %}>Messages</option>
+                <option value="author"   {% if sort_field == "author" %}selected{% endif %}>Author</option>
+            </select>
+        </label>
 
-            <label>
-                Order:
-                <select name="order">
-                    <option value="asc" {% if order == "asc" %}selected{% endif %}>Ascending</option>
-                    <option value="desc" {% if order == "desc" %}selected{% endif %}>Descending</option>
-                </select>
-            </label>
+        <label>
+            Order:
+            <select name="order">
+                <option value="asc"  {% if order == "asc" %}selected{% endif %}>Ascending</option>
+                <option value="desc" {% if order == "desc" %}selected{% endif %}>Descending</option>
+            </select>
+        </label>
 
-            {% if author_filter %}
-            <input type="hidden" name="author" value="{{ author_filter }}">
-            {% endif %}
+        <!-- persist filters -->
+        <input type="hidden" name="and" value="{{ and_raw }}">
+        <input type="hidden" name="not" value="{{ not_raw }}">
+        <input type="hidden" name="tab" value="{{ active_tab }}">
 
-            <button class="primary-button" type="submit">Apply</button>
-        </form>
+        <button class="primary-button" type="submit">Apply</button>
+    </form>
 
-        <button id="toggleBlur" class="btn-link" style="margin-bottom:15px;">Toggle Blur</button>
+    <!-- RESET FILTERS -->
+    <div style="margin-bottom:20px;">
+        <a href="/global-trending" class="primary-button">Reset Filters</a>
+    </div>
 
-        <!-- Filter indicator -->
-        {% if author_filter %}
-            <div style="margin-bottom:15px;">
-                <a href="/global-trending" class="primary-button" style="margin-right:10px;">
-                    Reset Filter
-                </a>
-                <span style="color:var(--text-muted);">
-                    Showing bots by <strong>{{ author_filter }}</strong>
-                </span>
-            </div>
+    <!-- ACTIVE FILTER CHIPS -->
+    {% if and_tags or not_tags %}
+    <div class="filter-chip-container">
+
+        {% for t in and_tags %}
+        <span class="filter-chip">
+            {{ t }}
+            <a href="?and={{ (and_tags | reject('equalto', t) | join(',')) | urlencode }}
+                     &not={{ not_raw | urlencode }}
+                     &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1"
+               class="filter-chip-x">×</a>
+        </span>
+        {% endfor %}
+
+        {% for t in not_tags %}
+        <span class="filter-chip" style="border-color:#ff5f5f; color:#ff5f5f;">
+            NOT {{ t }}
+            <a href="?not={{ (not_tags | reject('equalto', t) | join(',')) | urlencode }}
+                     &and={{ and_raw | urlencode }}
+                     &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1"
+               class="filter-chip-x">×</a>
+        </span>
+        {% endfor %}
+
+    </div>
+    {% endif %}
+
+    <!-- BOT COUNT SUMMARY -->
+    <div style="margin: 10px 0 20px 0; font-size:16px; color:#ccc;">
+        {% if and_tags or not_tags or author_filter %}
+            Showing <strong>{{ filtered_total }}</strong> bots
+        {% else %}
+            Showing all <strong>{{ ts_total }}</strong> bots
         {% endif %}
+    </div>
 
-        <!-- LAYOUT: GRID + SIDEBAR -->
-        <div class="layout-container">
+    <!-- LAYOUT -->
+    <div class="layout-container">
 
-            <!-- LEFT COLUMN: BOT CARDS -->
-            <div class="left-column">
-                <div class="bot-grid">
-                    {% for b in bots %}
-                    <div class="bot-card">
+        <!-- LEFT COLUMN -->
+        <div class="left-column">
 
-                        <div class="bot-ranking {% if b.rank <= 240 %}top240{% else %}top480{% endif %}">
-                            #{{ b.rank }}
-                        </div>
+            <!-- BOT GRID -->
+            <div class="bot-grid">
+                {% for b in bots %}
+                <div class="bot-card">
 
-                        <a href="{{ b.link }}" target="_blank">
-                            <img class="bot-image" src="{{ b.avatar_url }}" alt="{{ b.name }}">
+                    <div class="bot-ranking">#{{ b.rank }}</div>
+
+                    <a href="{{ b.link }}" target="_blank">
+                        <img class="bot-image" src="{{ b.avatar_url }}" alt="{{ b.name }}">
+                    </a>
+
+                    <div class="bot-name">{{ b.name }}</div>
+                    <div class="bot-title">{{ b.title }}</div>
+
+                    <div class="bot-stats">Total: {{ b.num_messages }}</div>
+
+                    <div class="bot-stats">
+                        Author:
+                        <a href="https://spicychat.ai/creator/{{ b.creator_username }}" target="_blank">
+                            {{ b.creator_username }}
                         </a>
-
-                        <div class="bot-name">{{ b.name }}</div>
-                        <div class="bot-title">{{ b.title }}</div>
-
-                        <div class="bot-stats">Total: {{ b.num_messages }}</div>
-
-                        <div class="bot-stats">
-                            Author:
-                            <!-- CARD AUTHOR → CREATOR PAGE (NOT FILTER) -->
-                            <a href="https://spicychat.ai/creator/{{ b.creator_username }}"
-                               target="_blank">
-                                {{ b.creator_username }}
-                            </a>
-                        </div>
-
-                        <a href="{{ b.link }}" target="_blank" class="details-link">Chat</a>
-
                     </div>
-                    {% endfor %}
+
+                    {% if b.tags %}
+                    <div class="bot-tags">
+                        {% for tag in b.tags %}
+                        <a href="?and={{ (and_raw + ',' + tag)|urlencode if and_raw else tag|urlencode }}
+                                 &not={{ not_raw|urlencode }}
+                                 &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1">
+                            <span class="tag">{{ tag }}</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <a href="{{ b.link }}" target="_blank" class="details-link">Chat</a>
                 </div>
+                {% endfor %}
             </div>
 
-            <!-- RIGHT COLUMN: LEADERBOARD FILTER -->
-            <div class="right-column">
-                <div class="sidebar-box">
+            <!-- PAGINATION -->
+            {% if total_pages > 1 %}
+            <div class="pagination">
 
-                    <h3>Top Creators</h3>
+                <!-- First -->
+                {% if page > 1 %}
+                <a href="{{ url_for('global_trending',
+                                     page=1,
+                                     sort=sort_field, order=order,
+                                     and=and_raw, not=not_raw,
+                                     tab=active_tab) }}">
+                    ⏮ First
+                </a>
+                {% else %}
+                <span>⏮ First</span>
+                {% endif %}
+
+                <!-- Prev -->
+                {% if page > 1 %}
+                <a href="{{ url_for('global_trending',
+                                     page=page-1,
+                                     sort=sort_field, order=order,
+                                     and=and_raw, not=not_raw,
+                                     tab=active_tab) }}">
+                    ◀ Prev
+                </a>
+                {% else %}
+                <span>◀ Prev</span>
+                {% endif %}
+
+                <!-- Page X of Y -->
+                <span style="color:#ffffff; font-size:17px; font-weight:600;">
+                    Page {{ page }} of {{ total_pages }}
+                </span>
+
+                <!-- Next -->
+                {% if page < total_pages %}
+                <a href="{{ url_for('global_trending',
+                                     page=page+1,
+                                     sort=sort_field, order=order,
+                                     and=and_raw, not=not_raw,
+                                     tab=active_tab) }}">
+                    Next ▶
+                </a>
+                {% else %}
+                <span>Next ▶</span>
+                {% endif %}
+
+                <!-- Last -->
+                {% if page < total_pages %}
+                <a href="{{ url_for('global_trending',
+                                     page=total_pages,
+                                     sort=sort_field, order=order,
+                                     and=and_raw, not=not_raw,
+                                     tab=active_tab) }}">
+                    Last ⏭
+                </a>
+                {% else %}
+                <span>Last ⏭</span>
+                {% endif %}
+
+                <!-- Jump to Top -->
+                <button class="primary-button"
+                        onclick="window.scrollTo({top:0, behavior:'smooth'})">
+                    ↑ Top
+                </button>
+
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- RIGHT SIDEBAR -->
+        <div class="right-column">
+
+            <div class="sidebar-box">
+
+                <!-- TABS -->
+                <div class="sidebar-tabs">
+                    <button class="sidebar-tab {% if active_tab=='creators' %}active{% endif %}"
+                            data-tab="creators">Creators</button>
+                    <button class="sidebar-tab {% if active_tab=='tags' %}active{% endif %}"
+                            data-tab="tags">Tags</button>
+                </div>
+
+                <!-- CREATORS TAB -->
+                <div id="tab-creators"
+                     class="sidebar-tab-content {% if active_tab=='creators' %}active{% endif %}">
+                    <table class="sidebar-table">
+                        <thead><tr><th>Creator</th><th>#</th></tr></thead>
+                        <tbody>
+                        {% for c in creators %}
+                        <tr>
+                            <td>
+                                <a href="?author={{ c.creator|urlencode }}&sort={{ sort_field }}&order={{ order }}&and={{ and_raw }}&not={{ not_raw }}&tab=creators&page=1">
+                                    {{ c.creator }}
+                                </a>
+                                
+                                </a>
+                            </td>
+                            <td>{{ c.count }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- TAGS TAB -->
+                <div id="tab-tags"
+                    class="sidebar-tab-content {% if active_tab=='tags' %}active{% endif %}">
 
                     <table class="sidebar-table">
                         <thead>
                             <tr>
-                                <th>Creator</th>
-                                <th>#</th>
+                                <th style="width: 55%;">Tag</th>
+                                <th style="width: 15%;">#</th>
+                                <th style="width: 30%;">Filter</th>
                             </tr>
                         </thead>
+
                         <tbody>
-                        {% for c in creators %}
-                            <tr>
-                                <td>
-                                    <!-- SIDEBAR AUTHOR → FILTER -->
-                                    <a href="?author={{ c.creator }}&sort={{ sort_field }}&order={{ order }}"
-                                       class="creator-filter-link">
-                                       {{ c.creator }}
-                                    </a>
-                                </td>
-                                <td>{{ c.count }}</td>
-                            </tr>
+                        {% for t in tags %}
+                        <tr>
+
+                            <!-- Tag name -->
+                            <td>{{ t.tag }}</td>
+
+                            <!-- Count -->
+                            <td>{{ t.count }}</td>
+
+                            <!-- Filter column -->
+                            <td style="text-align:center; white-space:nowrap;">
+
+                                <!-- AND (✓) -->
+                                <a title="Require this tag"
+                                style="color:#74ff74; font-weight:bold; margin-right:12px;"
+                                href="?and={{ (and_raw + ',' + t.tag)|urlencode if and_raw else t.tag|urlencode }}
+                                            &not={{ not_raw|urlencode }}
+                                            &sort={{ sort_field }}&order={{ order }}
+                                            &tab=tags&page=1">
+                                    ✓
+                                </a>
+
+                                <!-- NOT (✕) -->
+                                <a title="Exclude this tag"
+                                style="color:#ff6b6b; font-weight:bold;"
+                                href="?not={{ (not_raw + ',' + t.tag)|urlencode if not_raw else t.tag|urlencode }}
+                                            &and={{ and_raw|urlencode }}
+                                            &sort={{ sort_field }}&order={{ order }}
+                                            &tab=tags&page=1">
+                                    ✕
+                                </a>
+
+                            </td>
+
+                        </tr>
                         {% endfor %}
                         </tbody>
                     </table>
 
                 </div>
+
+
             </div>
 
-        </div> <!-- end layout-container -->
+        </div> <!-- right-column -->
 
-        <!-- Pagination -->
-        <div style="margin:30px 0; display:flex; justify-content:center; gap:10px;">
-            {% if page > 1 %}
-                <a class="primary-button"
-                   href="?page={{ page-1 }}{% if author_filter %}&author={{ author_filter }}{% endif %}&sort={{ sort_field }}&order={{ order }}">
-                    Prev
-                </a>
-            {% endif %}
+    </div> <!-- layout-container -->
 
-            <span style="padding:10px; opacity:0.7;">
-                Page {{ page }} / {{ total_pages }}
-            </span>
-
-            {% if page < total_pages %}
-                <a class="primary-button"
-                   href="?page={{ page+1 }}{% if author_filter %}&author={{ author_filter }}{% endif %}&sort={{ sort_field }}&order={{ order }}">
-                    Next
-                </a>
-            {% endif %}
-        </div>
-
-    </div> <!-- end global-container -->
-</div> <!-- end global-wrapper -->
+</div>
+</div>
 
 <script>
-document.getElementById("toggleBlur")
-    .addEventListener("click", () => {
-        document.querySelectorAll(".bot-image")
-            .forEach(img => img.classList.toggle("blurred"));
+/* Persistent Tabs */
+document.querySelectorAll(".sidebar-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const tab = btn.dataset.tab;
+
+        // UI switch
+        document.querySelectorAll(".sidebar-tab").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        document.querySelectorAll(".sidebar-tab-content").forEach(c => c.classList.remove("active"));
+        document.getElementById("tab-" + tab).classList.add("active");
+
+        // persist in URL
+        const params = new URLSearchParams(window.location.search);
+        params.set("tab", tab);
+        window.history.replaceState({}, "", "?" + params.toString());
     });
+});
 </script>
 
 </body>
