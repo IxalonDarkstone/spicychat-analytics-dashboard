@@ -438,3 +438,20 @@ a {
     padding: 6px 4px;
     font-size: 13px;
 }
+/* Fix header action buttons alignment */
+.header-actions {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    align-items: center;
+}
+
+.header-actions form {
+    margin: 0;
+}
+
+.header-actions .primary-button {
+    padding: 8px 18px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
