@@ -1737,8 +1737,16 @@ def trending():
 
 @app.route("/global-trending")
 def global_trending():
+
     # ---------------------------------------------------------
-    # FETCH #1 (Filtered): Only Female + NSFW bots to DISPLAY
+    # Persistent tab (Creators or Tags)
+    # ---------------------------------------------------------
+    active_tab = request.args.get("tab", "creators")
+    
+
+    # ---------------------------------------------------------
+    # FETCH #1 (Filtered Trending):
+    # Only Female + NSFW bots shown in trending grid.
     # ---------------------------------------------------------
     ts_map_filtered = fetch_typesense_top_bots(
         max_pages=10,
@@ -1748,7 +1756,8 @@ def global_trending():
     ts_list = list(ts_map_filtered.values())
 
     # ---------------------------------------------------------
-    # FETCH #2 (Unfiltered): ALL trending bots for TAG sidebar
+    # FETCH #2 (Unfiltered for TAGS):
+    # Sidebar tags must use ALL trending bots, not only filtered.
     # ---------------------------------------------------------
     ts_map_all = fetch_typesense_top_bots(
         max_pages=10,
@@ -1767,11 +1776,11 @@ def global_trending():
         ts_list.sort(key=lambda b: (b.get("creator_username") or "").lower(), reverse=reverse)
     elif sort_field == "messages":
         ts_list.sort(key=lambda b: int(b.get("num_messages") or 0), reverse=reverse)
-    else:
+    else:  # rank
         ts_list.sort(key=lambda b: int(b.get("rank") or 999999), reverse=reverse)
 
     # ---------------------------------------------------------
-    # Filtering by author & tag
+    # Author and Tag Filtering
     # ---------------------------------------------------------
     author_filter = request.args.get("author")
     tag_filter = request.args.get("tag")
@@ -1787,16 +1796,16 @@ def global_trending():
     # ---------------------------------------------------------
     PER_PAGE = 48
     page = int(request.args.get("page", 1))
+
     total_pages = max((len(ts_list) - 1) // PER_PAGE + 1, 1)
     page = max(1, min(page, total_pages))
 
     start = (page - 1) * PER_PAGE
     end = start + PER_PAGE
 
-    # ---------------------------------------------------------
-    # Avatar normalization for displayed bots
-    # ---------------------------------------------------------
     page_items = []
+
+    # Normalize avatars + slice
     for bot in ts_list[start:end]:
         raw = bot.get("avatar_url", "")
         if raw:
@@ -1804,14 +1813,13 @@ def global_trending():
             bot["avatar_url"] = f"{AVATAR_BASE_URL}/{filename}"
         else:
             bot["avatar_url"] = f"{AVATAR_BASE_URL}/default-avatar.png"
-
         page_items.append(bot)
 
     # ---------------------------------------------------------
-    # Creator leaderboard (from filtered trending dataset)
+    # Creator Leaderboard (Filtered dataset ONLY)
     # ---------------------------------------------------------
     creator_counts = {}
-    for bot in ts_map_filtered.values():   # COMES FROM FILTERED LIST
+    for bot in ts_map_filtered.values():
         creator = bot.get("creator_username", "")
         if creator:
             creator_counts[creator] = creator_counts.get(creator, 0) + 1
@@ -1823,14 +1831,12 @@ def global_trending():
     )
 
     # ---------------------------------------------------------
-    # TAG leaderboard (from UNFILTERED ALL-BOTS dataset)
+    # Tag Leaderboard (Unfiltered dataset)
     # ---------------------------------------------------------
     tag_counts = {}
-    for bot in ts_map_all.values():        # IMPORTANT: UNFILTERED DATA HERE
-        tags = bot.get("tags", [])
-        if tags:
-            for tag in tags:
-                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    for bot in ts_map_all.values():
+        for t in bot.get("tags", []) or []:
+            tag_counts[t] = tag_counts.get(t, 0) + 1
 
     tags_sorted = sorted(
         [{"tag": t, "count": c} for t, c in tag_counts.items()],
@@ -1851,10 +1857,9 @@ def global_trending():
         sort_field=sort_field,
         order=order,
         author_filter=author_filter,
-        tag_filter=tag_filter
+        tag_filter=tag_filter,
+        active_tab=active_tab
     )
-
-
 
 
 @app.route("/reauth", methods=["POST"])

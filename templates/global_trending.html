@@ -2,35 +2,43 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Global Trending — Top 480 Bots</title>
+    <title>Global Trending — Top Bots</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
     <style>
+        /* MAIN WRAPPER */
         .global-wrapper .global-container {
-            width: 95%;
+            width: 100%;
+            max-width: 1900px;
             margin: 32px auto;
+            padding: 0 20px;
         }
 
+        /* FLEX LAYOUT */
         .layout-container {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 280px;
+            display: flex;
             gap: 32px;
-            align-items: start;
+            align-items: flex-start;
         }
 
-        @media (max-width: 1400px) {
-            .layout-container {
-                grid-template-columns: 1fr;
-            }
+        /* LEFT COLUMN (cards) */
+        .left-column {
+            flex: 1;
+            min-width: 0;
         }
 
+        /* RIGHT COLUMN (sidebar) */
         .right-column {
+            width: 330px;
+            flex-shrink: 0;
             position: sticky;
             top: 110px;
-            max-height: calc(100vh - 160px);
+            height: calc(100vh - 140px);
             overflow-y: auto;
+            padding-right: 4px;
         }
 
+        /* SIDEBAR BOX */
         .sidebar-box {
             background-color: var(--card-color);
             border: 1px solid var(--border-color);
@@ -40,26 +48,7 @@
             box-shadow: 0 2px 6px var(--shadow-2);
         }
 
-        .sidebar-box h3 {
-            text-align: center;
-            margin-bottom: 12px;
-        }
-
-        .sidebar-table td, .sidebar-table th {
-            padding: 6px 4px;
-            font-size: 13px;
-        }
-
-        .tag {
-            background: var(--accent-color);
-            padding: 2px 6px;
-            border-radius: 6px;
-            font-size: 11px;
-            margin-right: 4px;
-            display: inline-block;
-            color: #000;
-        }
-                /* Tab buttons */
+        /* TABS */
         .sidebar-tabs {
             display: flex;
             border-bottom: 1px solid var(--border-color);
@@ -83,243 +72,370 @@
             border-bottom: 2px solid var(--accent-color);
         }
 
-        /* Content areas */
         .sidebar-tab-content {
             display: none;
         }
-
         .sidebar-tab-content.active {
             display: block;
         }
 
+        /* BOT GRID */
+        .bot-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 24px;
+        }
+
+        /* BOT CARD */
+        .bot-card {
+            background-color: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 2px 6px var(--shadow-2);
+        }
+
+        .bot-ranking {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: var(--accent-color);
+        }
+
+        .bot-image {
+            width: 100%;
+            height: 260px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .bot-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .bot-title {
+            font-size: 14px;
+            opacity: 0.8;
+            margin-bottom: 8px;
+        }
+
+        .bot-stats {
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .bot-tags {
+            margin: 10px 0;
+        }
+
+        .tag {
+            background: var(--accent-color);
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 11px;
+            margin: 2px;
+            display: inline-block;
+            color: #000;
+        }
+
+        .details-link {
+            margin-top: 8px;
+            display: inline-block;
+            padding: 6px 12px;
+            background: var(--accent-color);
+            border-radius: 6px;
+            color: #000;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        /* PAGINATION */
+        .pagination {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .pagination a,
+        .pagination span {
+            padding: 6px 14px;
+            background: var(--accent-color);
+            color: #000;
+            border-radius: 8px;
+            font-weight: bold;
+            text-decoration: none;
+        }
+        .pagination span {
+            opacity: 0.6;
+            pointer-events: none;
+        }
     </style>
 </head>
 
 <body>
 
 <div class="global-wrapper">
-    <div class="container global-container">
+<div class="container global-container">
 
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <h1>Global Trending</h1>
-                <div class="subheader">Top 480 Bots (Snapshot)</div>
-            </div>
-
-            <div class="header-right">
-                <a href="/" class="primary-button">Back to Dashboard</a>
-            </div>
-        </header>
-
-        <!-- Sorting Controls -->
-        <form method="get" class="bot-filter-form"
-              style="margin-bottom:20px; display:flex; gap:20px;">
-
-            <label>
-                Sort by:
-                <select name="sort">
-                    <option value="rank" {% if sort_field == "rank" %}selected{% endif %}>Rank</option>
-                    <option value="messages" {% if sort_field == "messages" %}selected{% endif %}>Messages</option>
-                    <option value="author" {% if sort_field == "author" %}selected{% endif %}>Author</option>
-                </select>
-            </label>
-
-            <label>
-                Order:
-                <select name="order">
-                    <option value="asc" {% if order == "asc" %}selected{% endif %}>Ascending</option>
-                    <option value="desc" {% if order == "desc" %}selected{% endif %}>Descending</option>
-                </select>
-            </label>
-
-            {% if author_filter %}
-                <input type="hidden" name="author" value="{{ author_filter }}">
-            {% endif %}
-            {% if tag_filter %}
-                <input type="hidden" name="tag" value="{{ tag_filter }}">
-            {% endif %}
-
-            <button class="primary-button" type="submit">Apply</button>
-        </form>
-
-        <button id="toggleBlur" class="btn-link" style="margin-bottom:15px;">Toggle Blur</button>
-
-        <!-- Filter indicator -->
-        {% if author_filter %}
-            <div style="margin-bottom:15px;">
-                <a href="/global-trending" class="primary-button" style="margin-right:10px;">
-                    Reset Filter
-                </a>
-                <span style="color:var(--text-muted);">
-                    Showing bots by <strong>{{ author_filter }}</strong>
-                </span>
-            </div>
-        {% endif %}
-
-        {% if tag_filter %}
-            <div style="margin-bottom:15px;">
-                <a href="/global-trending" class="primary-button" style="margin-right:10px;">
-                    Reset Tag Filter
-                </a>
-                <span style="color:var(--text-muted);">
-                    Showing bots tagged <strong>{{ tag_filter }}</strong>
-                </span>
-            </div>
-        {% endif %}
-
-        <!-- LAYOUT -->
-        <div class="layout-container">
-
-            <!-- LEFT COLUMN -->
-            <div class="left-column">
-                <div class="bot-grid">
-                    {% for b in bots %}
-                    <div class="bot-card">
-
-                        <div class="bot-ranking {% if b.rank <= 240 %}top240{% else %}top480{% endif %}">
-                            #{{ b.rank }}
-                        </div>
-
-                        <a href="{{ b.link }}" target="_blank">
-                            <img class="bot-image" src="{{ b.avatar_url }}" alt="{{ b.name }}">
-                        </a>
-
-                        <div class="bot-name">{{ b.name }}</div>
-                        <div class="bot-title">{{ b.title }}</div>
-
-                        <div class="bot-stats">Total: {{ b.num_messages }}</div>
-
-                        <div class="bot-stats">
-                            Author:
-                            <a href="https://spicychat.ai/creator/{{ b.creator_username }}"
-                               target="_blank">
-                                {{ b.creator_username }}
-                            </a>
-                        </div>
-
-                        {% if b.tags %}
-                        <div class="bot-tags">
-                            {% for tag in b.tags %}
-                                <span class="tag">{{ tag }}</span>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-
-                        <a href="{{ b.link }}" target="_blank" class="details-link">Chat</a>
-
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <!-- RIGHT SIDEBAR -->
-            <div class="right-column">
-
-                <div class="right-column">
-
-                    <div class="sidebar-box">
-                
-                        <!-- TAB HEADERS -->
-                        <div class="sidebar-tabs">
-                            <button class="sidebar-tab active" data-tab="creators">Creators</button>
-                            <button class="sidebar-tab" data-tab="tags">Tags</button>
-                        </div>
-                
-                        <!-- TAB CONTENT: CREATORS -->
-                        <div id="tab-creators" class="sidebar-tab-content active">
-                            <table class="sidebar-table">
-                                <thead>
-                                    <tr><th>Creator</th><th>#</th></tr>
-                                </thead>
-                                <tbody>
-                                {% for c in creators %}
-                                    <tr>
-                                        <td>
-                                            <a href="?author={{ c.creator }}&sort={{ sort_field }}&order={{ order }}">
-                                                {{ c.creator }}
-                                            </a>
-                                        </td>
-                                        <td>{{ c.count }}</td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                
-                        <!-- TAB CONTENT: TAGS -->
-                        <div id="tab-tags" class="sidebar-tab-content">
-                            <table class="sidebar-table">
-                                <thead>
-                                    <tr><th>Tag</th><th>#</th></tr>
-                                </thead>
-                                <tbody>
-                                {% for t in tags %}
-                                    <tr>
-                                        <td>
-                                            <a href="?tag={{ t.tag }}&sort={{ sort_field }}&order={{ order }}">
-                                                {{ t.tag }}
-                                            </a>
-                                        </td>
-                                        <td>{{ t.count }}</td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                
-                    </div>
-                
-                </div>
-                
+    <!-- HEADER -->
+    <header class="header">
+        <div class="header-left">
+            <h1>Global Trending</h1>
+            <div class="subheader">Top 480 Bots (Snapshot)</div>
         </div>
 
-        <!-- Pagination -->
-        <div style="margin:30px 0; display:flex; justify-content:center; gap:10px;">
-            {% if page > 1 %}
-                <a class="primary-button"
-                   href="?page={{ page-1 }}{% if author_filter %}&author={{ author_filter }}{% endif %}{% if tag_filter %}&tag={{ tag_filter }}{% endif %}&sort={{ sort_field }}&order={{ order }}">
-                    Prev
-                </a>
-            {% endif %}
-
-            <span style="padding:10px; opacity:0.7;">Page {{ page }} / {{ total_pages }}</span>
-
-            {% if page < total_pages %}
-                <a class="primary-button"
-                   href="?page={{ page+1 }}{% if author_filter %}&author={{ author_filter }}{% endif %}{% if tag_filter %}&tag={{ tag_filter }}{% endif %}&sort={{ sort_field }}&order={{ order }}">
-                    Next
-                </a>
-            {% endif %}
+        <div class="header-right">
+            <a href="/" class="primary-button">Back to Dashboard</a>
         </div>
+    </header>
 
+    <!-- SORTING FORM -->
+    <form method="get" class="bot-filter-form" style="margin-bottom:20px; display:flex; gap:20px;">
+
+        <label>
+            Sort by:
+            <select name="sort">
+                <option value="rank" {% if sort_field == "rank" %}selected{% endif %}>Rank</option>
+                <option value="messages" {% if sort_field == "messages" %}selected{% endif %}>Messages</option>
+                <option value="author" {% if sort_field == "author" %}selected{% endif %}>Author</option>
+            </select>
+        </label>
+
+        <label>
+            Order:
+            <select name="order">
+                <option value="asc" {% if order == "asc" %}selected{% endif %}>Ascending</option>
+                <option value="desc" {% if order == "desc" %}selected{% endif %}>Descending</option>
+            </select>
+        </label>
+
+        {% if author_filter %}<input type="hidden" name="author" value="{{ author_filter }}">{% endif %}
+        {% if tag_filter %}<input type="hidden" name="tag" value="{{ tag_filter }}">{% endif %}
+
+        <!-- Persist active tab -->
+        <input type="hidden" name="tab" value="{{ active_tab }}">
+
+        <button class="primary-button" type="submit">Apply</button>
+    </form>
+
+    <!-- RESET FILTER BUTTON -->
+    <div style="margin-bottom:20px;">
+        <a href="/global-trending" class="primary-button">Reset Filters</a>
     </div>
+
+
+
+    <!-- MAIN LAYOUT -->
+    <div class="layout-container">
+
+        <!-- LEFT: BOT GRID -->
+        <div class="left-column">
+
+            <div class="bot-grid">
+                {% for b in bots %}
+                <div class="bot-card">
+            
+                    <!-- Rank badge -->
+                    <div class="bot-ranking">#{{ b.rank }}</div>
+            
+                    <!-- Avatar -->
+                    <a href="{{ b.link }}" target="_blank">
+                        <img class="bot-image" src="{{ b.avatar_url }}" alt="{{ b.name }}">
+                    </a>
+            
+                    <!-- Name & title -->
+                    <div class="bot-name">{{ b.name }}</div>
+                    <div class="bot-title">{{ b.title }}</div>
+            
+                    <!-- Stats -->
+                    <div class="bot-stats">Total: {{ b.num_messages }}</div>
+            
+                    <div class="bot-stats">
+                        Author:
+                        <a href="https://spicychat.ai/creator/{{ b.creator_username }}" target="_blank">
+                            {{ b.creator_username }}
+                        </a>
+                    </div>
+            
+                    <!-- Tags (each tag is clickable filter) -->
+                    {% if b.tags %}
+                    <div class="bot-tags">
+                        {% for tag in b.tags %}
+                        <a href="{{ url_for('global_trending',
+                                             tag=tag,
+                                             sort=sort_field,
+                                             order=order,
+                                             page=1,
+                                             tab=active_tab) }}">
+                            <span class="tag">{{ tag }}</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+            
+                    <!-- Chat button -->
+                    <a href="{{ b.link }}" target="_blank" class="details-link">Chat</a>
+            
+                </div>
+                {% endfor %}
+            </div> <!-- bot-grid -->
+            
+        
+            <!-- PAGINATION BELOW CARD GRID -->
+            {% if total_pages > 1 %}
+            <div class="pagination"
+                style="display:flex; gap:16px; margin:24px 0; justify-content:center; align-items:center; flex-wrap:wrap;">
+
+                <!-- FIRST PAGE -->
+                {% if page > 1 %}
+                <a class="primary-button"
+                href="{{ url_for('global_trending',
+                        page=1,
+                        sort=sort_field,
+                        order=order,
+                        author=author_filter,
+                        tag=tag_filter,
+                        tab=active_tab) }}">
+                    ⏮ First
+                </a>
+                {% else %}
+                <span class="primary-button" style="opacity:0.5; pointer-events:none;">⏮ First</span>
+                {% endif %}
+
+                <!-- PREV PAGE -->
+                {% if page > 1 %}
+                <a class="primary-button"
+                href="{{ url_for('global_trending',
+                        page=page-1,
+                        sort=sort_field,
+                        order=order,
+                        author=author_filter,
+                        tag=tag_filter,
+                        tab=active_tab) }}">
+                    ◀ Prev
+                </a>
+                {% else %}
+                <span class="primary-button" style="opacity:0.5; pointer-events:none;">◀ Prev</span>
+                {% endif %}
+
+                <!-- PAGE X of Y -->
+                <span style="font-size:16px; color:var(--text-muted); margin:0 12px;">
+                    Page {{ page }} of {{ total_pages }}
+                </span>
+
+                <!-- NEXT PAGE -->
+                {% if page < total_pages %}
+                <a class="primary-button"
+                href="{{ url_for('global_trending',
+                        page=page+1,
+                        sort=sort_field,
+                        order=order,
+                        author=author_filter,
+                        tag=tag_filter,
+                        tab=active_tab) }}">
+                    Next ▶
+                </a>
+                {% else %}
+                <span class="primary-button" style="opacity:0.5; pointer-events:none;">Next ▶</span>
+                {% endif %}
+
+                <!-- LAST PAGE -->
+                {% if page < total_pages %}
+                <a class="primary-button"
+                href="{{ url_for('global_trending',
+                        page=total_pages,
+                        sort=sort_field,
+                        order=order,
+                        author=author_filter,
+                        tag=tag_filter,
+                        tab=active_tab) }}">
+                    Last ⏭
+                </a>
+                {% else %}
+                <span class="primary-button" style="opacity:0.5; pointer-events:none;">Last ⏭</span>
+                {% endif %}
+
+                <!-- JUMP TO TOP -->
+                <button class="primary-button" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+                    ↑ Jump to Top
+                </button>
+
+            </div>
+            {% endif %}
+
+        
+        </div> <!-- left-column -->
+        
+
+        <!-- RIGHT: SIDEBAR -->
+        <div class="right-column">
+            <div class="sidebar-box">
+
+                <!-- TABS -->
+                <div class="sidebar-tabs">
+                    <button class="sidebar-tab {% if active_tab=='creators' %}active{% endif %}" data-tab="creators">Creators</button>
+                    <button class="sidebar-tab {% if active_tab=='tags' %}active{% endif %}" data-tab="tags">Tags</button>
+                </div>
+
+                <!-- Creators -->
+                <div id="tab-creators" class="sidebar-tab-content {% if active_tab=='creators' %}active{% endif %}">
+                    <table class="sidebar-table">
+                        <thead><tr><th>Creator</th><th>#</th></tr></thead>
+                        <tbody>
+                        {% for c in creators %}
+                            <tr>
+                                <td><a href="?author={{ c.creator }}&sort={{ sort_field }}&order={{ order }}&tab=creators">{{ c.creator }}</a></td>
+                                <td>{{ c.count }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tags -->
+                <div id="tab-tags" class="sidebar-tab-content {% if active_tab=='tags' %}active{% endif %}">
+                    <table class="sidebar-table">
+                        <thead><tr><th>Tag</th><th>#</th></tr></thead>
+                        <tbody>
+                        {% for t in tags %}
+                            <tr>
+                                <td><a href="?tag={{ t.tag }}&sort={{ sort_field }}&order={{ order }}&tab=tags">{{ t.tag }}</a></td>
+                                <td>{{ t.count }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
+
+    </div> <!-- layout-container -->
+
+</div>
 </div>
 
 <script>
-document.getElementById("toggleBlur")
-    .addEventListener("click", () => {
-        document.querySelectorAll(".bot-image")
-            .forEach(img => img.classList.toggle("blurred"));
+document.querySelectorAll(".sidebar-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const tab = btn.dataset.tab;
+
+        // Switch UI
+        document.querySelectorAll(".sidebar-tab").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+
+        document.querySelectorAll(".sidebar-tab-content").forEach(c => c.classList.remove("active"));
+        document.getElementById("tab-" + tab).classList.add("active");
+
+        // Persist tab in URL
+        const params = new URLSearchParams(window.location.search);
+        params.set("tab", tab);
+        window.history.replaceState({}, "", "?" + params.toString());
     });
+});
 </script>
-<script>
-    document.querySelectorAll(".sidebar-tab").forEach(btn => {
-        btn.addEventListener("click", () => {
-    
-            // Remove active from all tabs
-            document.querySelectorAll(".sidebar-tab").forEach(b => b.classList.remove("active"));
-            btn.classList.add("active");
-    
-            // Hide all content blocks
-            document.querySelectorAll(".sidebar-tab-content").forEach(c => c.classList.remove("active"));
-    
-            // Show linked tab
-            const target = btn.dataset.tab;
-            document.getElementById("tab-" + target).classList.add("active");
-        });
-    });
-    </script>
-    
+
 </body>
 </html>
