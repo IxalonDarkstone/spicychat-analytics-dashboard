@@ -160,13 +160,8 @@ spicychat-analytics-dashboard/
 │   ├── spicychat.log
 │   ├── setup.log
 │
-├── charts/
-│   ├── totals_*.png
-│   ├── bot_*.png
-│
 ├── static/
 │   ├── style.css
-│   ├── charts/
 │
 └── templates/
     ├── index.html
@@ -231,14 +226,6 @@ templates/bots_table.html
 templates/bot_detail.html
 templates/global_trending.html
 ```
-
-### Charts missing  
-Ensure folders exist and are writable:
-```
-charts/
-static/charts/
-```
-
 ---
 
 # 💬 Questions / Suggestions?
