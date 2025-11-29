@@ -455,3 +455,26 @@ a {
     border-radius: 20px;
     white-space: nowrap;
 }
+
+.auth-box {
+    background: #1c1c1f;
+    color: #eee;
+    padding: 20px 24px;          /* reduce padding */
+    border-radius: 12px;
+    line-height: 1.25;           /* tighter line spacing */
+    max-width: 700px;
+}
+
+.auth-box h2 {
+    margin: 0 0 10px 0;          /* reduce header spacing */
+    font-size: 24px;
+}
+
+.auth-box p {
+    margin: 4px 0;               /* drastically reduce paragraph spacing */
+    font-size: 15px;
+}
+
+.auth-box button {
+    margin-top: 12px;            /* keep button separated */
+}
