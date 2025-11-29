@@ -929,6 +929,8 @@ def sanitize_rows(rows):
 def take_snapshot(args, verbose=True):
     global AUTH_REQUIRED
 
+    global AUTH_REQUIRED
+
     ensure_dirs()
     init_db()
 
@@ -965,11 +967,18 @@ def take_snapshot(args, verbose=True):
         logging.warning(f"No payloads captured: {e}. Marking auth required.")
         AUTH_REQUIRED = True
         return DATABASE
+        logging.warning(f"No payloads captured: {e}. Marking auth required.")
+        AUTH_REQUIRED = True
+        return DATABASE
 
     if not payloads:
         logging.warning("Snapshot: no payloads found.")
+        logging.warning("Snapshot: no payloads found.")
         return DATABASE
 
+    # -------------------------------
+    # Flatten and clean rows (unchanged)
+    # -------------------------------
     # -------------------------------
     # Flatten and clean rows (unchanged)
     # -------------------------------
@@ -986,9 +995,11 @@ def take_snapshot(args, verbose=True):
             logging.debug(f"Skipping item due to missing num_messages or bot_id: {d}")
             continue
 
+
         created_at = get_created_at(d)
         if created_at:
             created_at = pd.Timestamp(created_at, tz="UTC").tz_convert(CDT).isoformat()
+
 
         row = {
             "date": stamp,
@@ -1001,9 +1012,11 @@ def take_snapshot(args, verbose=True):
             "avatar_url": get_avatar_url(d)
         }
 
+
         if bot_id in seen:
             logging.debug(f"Skipping duplicate bot_id: {bot_id}")
             continue
+
 
         seen.add(bot_id)
         rows.append(row)
@@ -1011,6 +1024,9 @@ def take_snapshot(args, verbose=True):
     rows_clean = sanitize_rows(rows)
     logging.debug(f"Sanitized rows: {len(rows_clean)}")
 
+    # -------------------------------
+    # DB write (UNCHANGED)
+    # -------------------------------
     # -------------------------------
     # DB write (UNCHANGED)
     # -------------------------------
@@ -1028,11 +1044,17 @@ def take_snapshot(args, verbose=True):
             ))
         conn.commit()
 
+
         set_last_snapshot_time()
         safe_log("Last snapshot time updated.")
 
+
     if verbose:
         safe_log(f"Snapshot saved for {len(rows_clean)} bots to {DATABASE}")
+
+    # -------------------------------
+    # Typesense cache refresh (UNCHANGED)
+    # -------------------------------
 
     # -------------------------------
     # Typesense cache refresh (UNCHANGED)
@@ -1048,11 +1070,17 @@ def take_snapshot(args, verbose=True):
     # -------------------------------
     # Save rank history (UNCHANGED)
     # -------------------------------
+    # -------------------------------
+    # Save rank history (UNCHANGED)
+    # -------------------------------
     try:
         save_rank_history_for_date(stamp, ts_map)
     except Exception as e:
         logging.error(f"Error saving rank history: {e}")
 
+    # -------------------------------
+    # Save Top-240 & Top-480 history (UNCHANGED)
+    # -------------------------------
     # -------------------------------
     # Save Top-240 & Top-480 history (UNCHANGED)
     # -------------------------------
@@ -1098,6 +1126,10 @@ def take_snapshot(args, verbose=True):
     except Exception as e:
         logging.error(f"Error saving top-level histories: {e}")
 
+    # -------------------------------
+    # Final timestamp update (UNCHANGED)
+    # -------------------------------
+    global LAST_SNAPSHOT_DATE
     # -------------------------------
     # Final timestamp update (UNCHANGED)
     # -------------------------------
@@ -2223,11 +2255,16 @@ if __name__ == "__main__":
 
     # STARTUP SNAPSHOT (only if auth good)
     if not NO_SNAPSHOT_MODE and not AUTH_REQUIRED:
+        safe_log("Startup auth valid.")
+
+    # STARTUP SNAPSHOT (only if auth good)
+    if not NO_SNAPSHOT_MODE and not AUTH_REQUIRED:
         safe_log("Running startup snapshot…")
         try:
             take_snapshot({})
         except Exception as e:
             safe_log(f"Startup snapshot failed: {e}")
+
 
 
     # HOURLY SCHEDULER (always runs)
