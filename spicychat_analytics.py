@@ -231,12 +231,9 @@ def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_afte
             "created_at": created_at_str,
             "link": f"https://spicychat.ai/chat/{bot_id}",
             "avatar_url": avatar_url,
-            "rank": rank_val,
-            "rank_tier": rank_tier,
-            # NEW: add formatted messages count
-            "num_messages_fmt": fmt_commas(row["num_messages"])
+            "rank": rank_val,        # used for tags & bot detail
+            "rank_tier": rank_tier,  # "top240" / "top480" / None
         })
-
 
     # Sorting behavior
     reverse = not sort_asc
@@ -599,13 +596,8 @@ def capture_auth_credentials(wait_rounds=18):
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
-        
-        # Check if table exists and add avatar_url if missing
-        c.execute("PRAGMA table_info(bots)")
-        columns = {row[1] for row in c.fetchall()}
-        if "avatar_url" not in columns:
-            c.execute("ALTER TABLE bots ADD COLUMN avatar_url TEXT")
-            safe_log("Added avatar_url column to bots table")
+
+        # 1. First create the table (with avatar_url already included)
         c.execute("""
             CREATE TABLE IF NOT EXISTS bots (
                 date TEXT,
@@ -620,7 +612,15 @@ def init_db():
             )
         """)
 
-        # Rank history per bot per day
+        # 2. Only if the table existed BEFORE this script version (very old DBs),
+        #     add the missing column safely
+        c.execute("PRAGMA table_info(bots)")
+        columns = {row[1] for row in c.fetchall()}
+        if "avatar_url" not in columns:
+            c.execute("ALTER TABLE bots ADD COLUMN avatar_url TEXT")
+            safe_log("Added missing avatar_url column to existing bots table")
+
+        # The rest stays exactly the same
         c.execute("""
             CREATE TABLE IF NOT EXISTS bot_rank_history (
                 date TEXT NOT NULL,
@@ -630,7 +630,6 @@ def init_db():
             )
         """)
 
-        # NEW: number of your bots in Typesense top 480 per day
         c.execute("""
             CREATE TABLE IF NOT EXISTS top480_history (
                 date TEXT PRIMARY KEY,
@@ -646,16 +645,15 @@ def init_db():
         """)
 
         c.execute("""
-        CREATE TABLE IF NOT EXISTS metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
         """)
 
         conn.commit()
 
-
-        safe_log(f"Initialized or updated SQLite database at {DATABASE}")
+    safe_log(f"Database initialized/verified at {DATABASE}")
 # ------------------ Typesense Client Wrapper ------------------
 def multi_search_request(payload):
     """
@@ -932,8 +930,6 @@ def sanitize_rows(rows):
 def take_snapshot(args, verbose=True):
     global AUTH_REQUIRED
 
-    global AUTH_REQUIRED
-
     ensure_dirs()
     init_db()
 
@@ -970,18 +966,11 @@ def take_snapshot(args, verbose=True):
         logging.warning(f"No payloads captured: {e}. Marking auth required.")
         AUTH_REQUIRED = True
         return DATABASE
-        logging.warning(f"No payloads captured: {e}. Marking auth required.")
-        AUTH_REQUIRED = True
-        return DATABASE
 
     if not payloads:
         logging.warning("Snapshot: no payloads found.")
-        logging.warning("Snapshot: no payloads found.")
         return DATABASE
 
-    # -------------------------------
-    # Flatten and clean rows (unchanged)
-    # -------------------------------
     # -------------------------------
     # Flatten and clean rows (unchanged)
     # -------------------------------
@@ -998,11 +987,9 @@ def take_snapshot(args, verbose=True):
             logging.debug(f"Skipping item due to missing num_messages or bot_id: {d}")
             continue
 
-
         created_at = get_created_at(d)
         if created_at:
             created_at = pd.Timestamp(created_at, tz="UTC").tz_convert(CDT).isoformat()
-
 
         row = {
             "date": stamp,
@@ -1015,11 +1002,9 @@ def take_snapshot(args, verbose=True):
             "avatar_url": get_avatar_url(d)
         }
 
-
         if bot_id in seen:
             logging.debug(f"Skipping duplicate bot_id: {bot_id}")
             continue
-
 
         seen.add(bot_id)
         rows.append(row)
@@ -1027,9 +1012,6 @@ def take_snapshot(args, verbose=True):
     rows_clean = sanitize_rows(rows)
     logging.debug(f"Sanitized rows: {len(rows_clean)}")
 
-    # -------------------------------
-    # DB write (UNCHANGED)
-    # -------------------------------
     # -------------------------------
     # DB write (UNCHANGED)
     # -------------------------------
@@ -1047,17 +1029,11 @@ def take_snapshot(args, verbose=True):
             ))
         conn.commit()
 
-
         set_last_snapshot_time()
         safe_log("Last snapshot time updated.")
 
-
     if verbose:
         safe_log(f"Snapshot saved for {len(rows_clean)} bots to {DATABASE}")
-
-    # -------------------------------
-    # Typesense cache refresh (UNCHANGED)
-    # -------------------------------
 
     # -------------------------------
     # Typesense cache refresh (UNCHANGED)
@@ -1073,17 +1049,11 @@ def take_snapshot(args, verbose=True):
     # -------------------------------
     # Save rank history (UNCHANGED)
     # -------------------------------
-    # -------------------------------
-    # Save rank history (UNCHANGED)
-    # -------------------------------
     try:
         save_rank_history_for_date(stamp, ts_map)
     except Exception as e:
         logging.error(f"Error saving rank history: {e}")
 
-    # -------------------------------
-    # Save Top-240 & Top-480 history (UNCHANGED)
-    # -------------------------------
     # -------------------------------
     # Save Top-240 & Top-480 history (UNCHANGED)
     # -------------------------------
@@ -1133,10 +1103,6 @@ def take_snapshot(args, verbose=True):
     # Final timestamp update (UNCHANGED)
     # -------------------------------
     global LAST_SNAPSHOT_DATE
-    # -------------------------------
-    # Final timestamp update (UNCHANGED)
-    # -------------------------------
-    global LAST_SNAPSHOT_DATE
     LAST_SNAPSHOT_DATE = snapshot_time.isoformat()
     safe_log(f"Snapshot complete at {LAST_SNAPSHOT_DATE}")
 
@@ -1164,15 +1130,35 @@ def load_history_df() -> pd.DataFrame:
             df[col] = ""
             logging.warning(f"Missing column {col} in database, filled with empty values")
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    # --- FIXED PART START ---
+    # Convert date safely and drop or handle invalid dates
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")  # Keep as Timestamp for now
+
+    # Drop rows where date is NaT (completely invalid) — they are useless
+    invalid_dates = df["date"].isna().sum()
+    if invalid_dates > 0:
+        logging.warning(f"Dropping {invalid_dates} rows with invalid/missing date")
+        df = df.dropna(subset="date")
+
+    # Now convert to .date() safely
+    df["date"] = df["date"].dt.date
+
+    # Convert num_messages
     df["num_messages"] = pd.to_numeric(df["num_messages"], errors="coerce").fillna(0).astype(int)
-    if not df.empty and "created_at" in df.columns and pd.notnull(df["created_at"]).any():
-        df["created_at"] = pd.to_datetime(df["created_at"], utc=True).dt.tz_convert(CDT)
+
+    # Handle created_at
+    if "created_at" in df.columns and pd.notnull(df["created_at"]).any():
+        df["created_at"] = pd.to_datetime(df["created_at"], utc=True, errors="coerce").dt.tz_convert(CDT)
     else:
         df["created_at"] = pd.NaT
+    # --- FIXED PART END ---
+
     safe_log(f"Loaded {len(df)} rows from database: {list(df.columns)}")
-    logging.debug(f"DataFrame head: {df.head().to_string()}")
-    logging.debug(f"Available dates: {sorted(df['date'].unique())}")
+
+    # Safe debug line — filter out None/NaT before sorting
+    valid_dates = [d for d in df["date"].unique() if d is not None]
+    logging.debug(f"Available dates: {sorted(valid_dates)}")
+
     return df
 
 def compute_deltas(df_raw: pd.DataFrame, timeframe="All") -> pd.DataFrame:
@@ -1650,7 +1636,7 @@ def api_bot_history(bot_id):
             "page": page,
         })
 
-    return jsonify({"bot_id": bot_id, "points": points})        
+    return jsonify({"bot_id": bot_id, "points": points})
 
 
 @app.route("/bot/<bot_id>")
@@ -1964,13 +1950,14 @@ def trending():
 
 @app.route("/global-trending")
 def global_trending():
+
     # --------------------------------------------
     # Persistent tab (creators or tags)
     # --------------------------------------------
     active_tab = request.args.get("tab", "creators")
 
     # --------------------------------------------
-    # Fetch trending: filtered (Female + NSFW) for grid
+    # Fetch trending: filtered (female+nsfw) for grid
     # --------------------------------------------
     ts_map_filtered = fetch_typesense_top_bots(
         max_pages=10,
@@ -1980,7 +1967,7 @@ def global_trending():
     ts_list = list(ts_map_filtered.values())
 
     # --------------------------------------------
-    # Fetch unfiltered for TAG sidebar (optional; not strictly needed below)
+    # Fetch unfiltered for TAG sidebar
     # --------------------------------------------
     ts_map_all = fetch_typesense_top_bots(
         max_pages=10,
@@ -1989,7 +1976,7 @@ def global_trending():
     )
 
     # --------------------------------------------
-    # Sorting for bot grid
+    # Sorting
     # --------------------------------------------
     sort_field = request.args.get("sort", "rank")
     order = request.args.get("order", "asc")
@@ -2013,28 +2000,31 @@ def global_trending():
 
     def tag_match(bot):
         bot_tags = [t.lower() for t in (bot.get("tags") or [])]
+
         # AND: must contain all
         for t in and_tags:
             if t not in bot_tags:
                 return False
+
         # NOT: must contain none
         for t in not_tags:
             if t in bot_tags:
                 return False
+
         return True
 
     if and_tags or not_tags:
         ts_list = [b for b in ts_list if tag_match(b)]
 
     # --------------------------------------------
-    # Author filter
+    # Author filter (as-is)
     # --------------------------------------------
     author_filter = request.args.get("author")
     if author_filter:
         ts_list = [b for b in ts_list if b.get("creator_username") == author_filter]
 
     # --------------------------------------------
-    # Pagination (48 per Typesense page)
+    # Pagination
     # --------------------------------------------
     PER_PAGE = 48
     page = int(request.args.get("page", 1))
@@ -2053,11 +2043,6 @@ def global_trending():
             bot["avatar_url"] = f"{AVATAR_BASE_URL}/{filename}"
         else:
             bot["avatar_url"] = f"{AVATAR_BASE_URL}/default-avatar.png"
-
-        # Pre-format messages and normalize display name for template
-        bot["num_messages_fmt"] = fmt_commas(int(bot.get("num_messages") or 0))
-        bot["display_name"] = bot.get("name", "")  # template expects display_name
-
         page_items.append(bot)
 
     # --------------------------------------------
@@ -2069,23 +2054,31 @@ def global_trending():
         if creator:
             creator_counts[creator] = creator_counts.get(creator, 0) + 1
 
-    creators = [{"creator": c, "count": n, "count_fmt": fmt_commas(n)} for c, n in creator_counts.items()]
+    creators_sorted = sorted(
+        [{"creator": c, "count": n} for c, n in creator_counts.items()],
+        key=lambda x: x["count"], reverse=True
+    )
 
     # --------------------------------------------
-    # Tag leaderboard (filtered trending — matches grid)
+    # Tag leaderboard (unfiltered trending)
     # --------------------------------------------
+    # Tag leaderboard (filtered trending — matches grid)
     tag_counts = {}
     for bot in ts_map_filtered.values():
         for t in bot.get("tags", []) or []:
             tag_counts[t] = tag_counts.get(t, 0) + 1
 
-    tags = [{"tag": t, "count": c, "count_fmt": fmt_commas(c)} for t, c in tag_counts.items()]
-       
+
+    tags_sorted = sorted(
+        [{"tag": t, "count": c} for t, c in tag_counts.items()],
+        key=lambda x: x["count"], reverse=True
+    )
+
     return render_template(
         "global_trending.html",
         bots=page_items,
-        creators=creators,
-        tags=tags,
+        creators=creators_sorted,
+        tags=tags_sorted,
         page=page,
         total_pages=total_pages,
         sort_field=sort_field,
@@ -2101,9 +2094,7 @@ def global_trending():
     )
 
 
-    
-    
-    
+
 @app.route("/reauth", methods=["POST"])
 def reauth():
     """
@@ -2227,11 +2218,7 @@ if __name__ == "__main__":
     setup_logging()
     ensure_dirs()
     init_db()
-    
-    # --- ADDED: Flask app initialization ---
-    app = Flask(__name__)
-    # --- END ADDED ---
- 
+
     parser = argparse.ArgumentParser(description="SpicyChat Analytics Dashboard")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--host", type=str, default="0.0.0.0")
@@ -2257,16 +2244,11 @@ if __name__ == "__main__":
 
     # STARTUP SNAPSHOT (only if auth good)
     if not NO_SNAPSHOT_MODE and not AUTH_REQUIRED:
-        safe_log("Startup auth valid.")
-
-    # STARTUP SNAPSHOT (only if auth good)
-    if not NO_SNAPSHOT_MODE and not AUTH_REQUIRED:
         safe_log("Running startup snapshot…")
         try:
             take_snapshot({})
         except Exception as e:
             safe_log(f"Startup snapshot failed: {e}")
-
 
 
     # HOURLY SCHEDULER (always runs)
