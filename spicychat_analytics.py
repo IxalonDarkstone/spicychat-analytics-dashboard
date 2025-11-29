@@ -327,26 +327,144 @@ def flatten_items(obj, out):
 
 # ------------------ Token Capture ------------------
 def load_auth_credentials():
+    """
+    Returns:
+        (bearer_token, guest_userid, refresh_token, expires_at, client_id)
+    """
     if AUTH_FILE.exists():
         try:
             with open(AUTH_FILE, "r", encoding='utf-8') as f:
                 data = json.load(f)
-                return data.get("bearer_token"), data.get("guest_userid")
+                return (
+                    data.get("bearer_token"),
+                    data.get("guest_userid"),
+                    data.get("refresh_token"),
+                    data.get("expires_at"),
+                    data.get("client_id"),
+                )
         except Exception as e:
-            logging.warning(f"Error loading auth credentials from {AUTH_FILE}: {e}")
-    return None, None
+            logging.warning(f"Error loading auth credentials: {e}")
+
+    return None, None, None, None, None
+
+
+
 
 def load_bearer_token():
     """Return (bearer_token, guest_userid) by reusing existing load_auth_credentials."""
     return load_auth_credentials()
 
-def save_auth_credentials(bearer_token, guest_userid):
+def save_auth_credentials(
+    bearer_token,
+    guest_userid,
+    refresh_token=None,
+    expires_at=None,
+    client_id=None
+):
     try:
+        data = {
+            "bearer_token": bearer_token,
+            "guest_userid": guest_userid,
+            "refresh_token": refresh_token,
+            "expires_at": expires_at,
+            "client_id": client_id,
+        }
         with open(AUTH_FILE, "w", encoding='utf-8') as f:
-            json.dump({"bearer_token": bearer_token, "guest_userid": guest_userid}, f)
+            json.dump(data, f)
         safe_log(f"Saved auth credentials to {AUTH_FILE}")
     except Exception as e:
-        logging.error(f"Error saving auth credentials to {AUTH_FILE}: {e}")
+        logging.error(f"Error saving auth credentials: {e}")
+
+
+
+KINDE_DOMAIN = "gamma.kinde.com"
+# Dynamic Kinde client ID
+# Loaded automatically from login flow (capture_auth_credentials)
+# If unavailable, force reauth.
+def get_kinde_client_id():
+    """
+    Returns the Kinde client_id stored in auth_credentials.json.
+    If missing, we cannot refresh tokens → require reauth.
+    """
+    if AUTH_FILE.exists():
+        try:
+            with open(AUTH_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                cid = data.get("client_id")
+                if cid:
+                    return cid
+        except Exception as e:
+            safe_log(f"Error loading client_id: {e}")
+
+    # No client_id stored → cannot refresh → must reauth manually
+    safe_log("No Kinde client_id found. Reauth is required.")
+    return None
+
+
+def refresh_kinde_token(refresh_token, client_id):
+    if not client_id:
+        safe_log("No client_id available, cannot refresh — reauth required.")
+        return None
+
+    url = f"https://{KINDE_DOMAIN}/oauth2/token"
+    payload = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+    }
+
+    try:
+        r = requests.post(url, data=payload, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        safe_log(f"Kinde refresh failed: {e}")
+        return None
+
+
+
+def ensure_fresh_kinde_token():
+    global AUTH_REQUIRED
+
+    bearer, guest, refresh_token, expires_at, client_id = load_auth_credentials()
+
+
+    # Missing credentials
+    if not bearer or not guest:
+        AUTH_REQUIRED = True
+        return None, None
+
+    # No expiration known → treat as expired
+    if not expires_at:
+        AUTH_REQUIRED = True
+        return None, None
+
+    # Fresh enough
+    if time.time() < (expires_at - 60):
+        return bearer, guest
+
+    # Try refreshing
+    safe_log("Token expired — attempting Kinde refresh...")
+    new_tokens = refresh_kinde_token(refresh_token, client_id)
+
+
+    if not new_tokens or not new_tokens.get("access_token"):
+        safe_log("Kinde refresh failed — auth required.")
+        AUTH_REQUIRED = True
+        return None, None
+
+    # Save refreshed tokens
+    new_bearer = new_tokens["access_token"]
+    new_refresh = new_tokens.get("refresh_token", refresh_token)
+    new_expires = time.time() + new_tokens.get("expires_in", 3600)
+
+    save_auth_credentials(new_bearer, guest, new_refresh, new_expires)
+
+    AUTH_REQUIRED = False
+    safe_log("Kinde token refresh successful.")
+
+    return new_bearer, guest
+
 
 def test_auth_credentials(bearer_token, guest_userid):
     if not bearer_token or not guest_userid:
@@ -376,73 +494,110 @@ def test_auth_credentials(bearer_token, guest_userid):
         return False
 
 def capture_auth_credentials(wait_rounds=18):
-    # Try existing credentials first
-    bearer_token, guest_userid = load_auth_credentials()
-    if test_auth_credentials(bearer_token, guest_userid):
-        return bearer_token, guest_userid
+    """
+    Fully stable 2.0-style capture:
+    - Launch ONE browser
+    - Allow manual login using email/code or Google
+    - User navigates to My Chatbots
+    - Press Enter to continue
+    - Capture bearer + guest_userid from actual requests
+    - Close browser cleanly
+    - Return tokens compatible with Kinde refresh system
+    """
 
-    # If credentials are invalid or missing, prompt for manual login
+    bearer_token, guest_userid, refresh_token, expires_at, client_id = load_auth_credentials()
+
+    # If credentials are valid, reuse them
+    if test_auth_credentials(bearer_token, guest_userid):
+        return bearer_token, guest_userid, refresh_token, expires_at, client_id
+
+    safe_log("Launching Playwright for manual authentication…")
+
     bearer_token = None
     guest_userid = None
+    discovered_client_id = None
+    token_bundle = {}
+
+    from playwright.sync_api import sync_playwright
+    import urllib.parse as urlparse
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)  # Non-headless for manual login
+        browser = p.chromium.launch(headless=False)
         ctx = browser.new_context()
         page = ctx.new_page()
 
+        # Capture Kinde client_id from /oauth2/auth requests
         def on_request(req):
-            nonlocal bearer_token, guest_userid
-            try:
-                if "/v2/users/characters" in urlparse(req.url).path:
-                    headers = req.headers
-                    if "authorization" in headers and headers["authorization"].startswith("Bearer "):
-                        bearer_token = headers["authorization"].replace("Bearer ", "")
-                        safe_log("Captured bearer token")
-                    if "x-guest-userid" in headers:
-                        guest_userid = headers["x-guest-userid"]
-                        safe_log("Captured x-guest-userid")
-            except Exception as e:
-                logging.warning(f"Error processing request: {e}")
+            nonlocal bearer_token, guest_userid, discovered_client_id
+            url = req.url
 
-        page.on("request", on_request)
-        try:
-            print("Please log in to SpicyChat using Google Sign-In in the opened browser window.")
-            print("After logging in, navigate to 'My Chatbots' and press Enter in this terminal to continue.")
-            page.goto("https://spicychat.ai", timeout=45000)
-            input("Press Enter when you have logged in and navigated to My Chatbots...")
-            page.goto(MY_BOTS_URL, timeout=45000)
-            for _ in range(wait_rounds):
-                page.wait_for_load_state("networkidle", timeout=15000)
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                time.sleep(0.4)
-            if not bearer_token or not guest_userid:
-                page.reload(timeout=45000)
-                page.wait_for_load_state("networkidle", timeout=15000)
-                time.sleep(1.0)
-        except Exception as e:
-            logging.error(f"Error capturing auth credentials: {e}")
-        finally:
-            ctx.close()
-            browser.close()
+            # CLIENT ID
+            if "/oauth2/auth" in url:
+                parsed = urlparse.urlparse(url)
+                q = urlparse.parse_qs(parsed.query)
+                if "client_id" in q:
+                    discovered_client_id = q["client_id"][0]
+                    safe_log(f"Captured client_id = {discovered_client_id}")
+
+            # ACCESS TOKEN + guest_userid from spicychat API calls
+            path = urlparse.urlparse(url).path
+            if "/v2/users/characters" in path:
+                headers = req.headers
+                if "authorization" in headers and headers["authorization"].startswith("Bearer "):
+                    bearer_token = headers["authorization"][7:]
+                    safe_log("Captured bearer_token (API)")
+                if "x-guest-userid" in headers:
+                    guest_userid = headers["x-guest-userid"]
+                    safe_log(f"Captured guest_userid = {guest_userid}")
+
+        # Capture token bundle (refresh_token, expires_in)
+        def on_response(res):
+            nonlocal token_bundle
+            try:
+                if "/oauth2/token" in res.url:
+                    data = res.json()
+                    token_bundle = data
+                    safe_log("Captured Kinde token bundle")
+            except:
+                pass
+
+        ctx.on("request", on_request)
+        ctx.on("response", on_response)
+
+        # Begin authentication
+        page.goto("https://spicychat.ai", wait_until="networkidle")
+        print("Log into SpicyChat. After logging in, navigate to My Chatbots.")
+        input("Press Enter when you are fully logged in and on My Chatbots...")
+
+        # Wait for traffic & capture
+        for _ in range(wait_rounds):
+            page.wait_for_load_state("networkidle", timeout=15000)
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            time.sleep(0.3)
+
+        ctx.close()
+        browser.close()
 
     if not bearer_token or not guest_userid:
-        logging.error("Failed to capture bearer token or guest user ID")
-        raise RuntimeError("Failed to capture auth credentials")
+        raise RuntimeError("Failed to capture bearer_token or guest_userid")
 
-    save_auth_credentials(bearer_token, guest_userid)
-    return bearer_token, guest_userid
+    # Kinde bundle compatibility
+    access_token = bearer_token
+    refresh = token_bundle.get("refresh_token")
+    expires = time.time() + token_bundle.get("expires_in", 3600)
+    cid = discovered_client_id
+
+    save_auth_credentials(access_token, guest_userid, refresh, expires, cid)
+
+    return access_token, guest_userid, refresh, expires, cid
+
 
 # ------------------ Database ------------------
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
-        
-        # Check if table exists and add avatar_url if missing
-        c.execute("PRAGMA table_info(bots)")
-        columns = {row[1] for row in c.fetchall()}
-        if "avatar_url" not in columns:
-            c.execute("ALTER TABLE bots ADD COLUMN avatar_url TEXT")
-            safe_log("Added avatar_url column to bots table")
+
+        # 1. First create the table (with avatar_url already included)
         c.execute("""
             CREATE TABLE IF NOT EXISTS bots (
                 date TEXT,
@@ -457,7 +612,15 @@ def init_db():
             )
         """)
 
-        # Rank history per bot per day
+        # 2. Only if the table existed BEFORE this script version (very old DBs),
+        #     add the missing column safely
+        c.execute("PRAGMA table_info(bots)")
+        columns = {row[1] for row in c.fetchall()}
+        if "avatar_url" not in columns:
+            c.execute("ALTER TABLE bots ADD COLUMN avatar_url TEXT")
+            safe_log("Added missing avatar_url column to existing bots table")
+
+        # The rest stays exactly the same
         c.execute("""
             CREATE TABLE IF NOT EXISTS bot_rank_history (
                 date TEXT NOT NULL,
@@ -467,7 +630,6 @@ def init_db():
             )
         """)
 
-        # NEW: number of your bots in Typesense top 480 per day
         c.execute("""
             CREATE TABLE IF NOT EXISTS top480_history (
                 date TEXT PRIMARY KEY,
@@ -483,16 +645,15 @@ def init_db():
         """)
 
         c.execute("""
-        CREATE TABLE IF NOT EXISTS metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
         """)
 
         conn.commit()
 
-
-        safe_log(f"Initialized or updated SQLite database at {DATABASE}")
+    safe_log(f"Database initialized/verified at {DATABASE}")
 # ------------------ Typesense Client Wrapper ------------------
 def multi_search_request(payload):
     """
@@ -781,12 +942,12 @@ def take_snapshot(args, verbose=True):
     # AUTH FIX: Do NOT call capture_auth_credentials()
     #          Use saved credentials ONLY.
     # ----------------------------------------------------
-    bearer_token, guest_userid = load_auth_credentials()
+    bearer_token, guest_userid = ensure_fresh_kinde_token()
 
     if not bearer_token or not guest_userid:
-        safe_log("No saved auth credentials — marking auth required.")
-        AUTH_REQUIRED = True
+        safe_log("Snapshot aborted — auth required.")
         return DATABASE
+
 
     if not test_auth_credentials(bearer_token, guest_userid):
         safe_log("Saved credentials invalid — marking auth required.")
@@ -969,15 +1130,35 @@ def load_history_df() -> pd.DataFrame:
             df[col] = ""
             logging.warning(f"Missing column {col} in database, filled with empty values")
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    # --- FIXED PART START ---
+    # Convert date safely and drop or handle invalid dates
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")  # Keep as Timestamp for now
+
+    # Drop rows where date is NaT (completely invalid) — they are useless
+    invalid_dates = df["date"].isna().sum()
+    if invalid_dates > 0:
+        logging.warning(f"Dropping {invalid_dates} rows with invalid/missing date")
+        df = df.dropna(subset="date")
+
+    # Now convert to .date() safely
+    df["date"] = df["date"].dt.date
+
+    # Convert num_messages
     df["num_messages"] = pd.to_numeric(df["num_messages"], errors="coerce").fillna(0).astype(int)
-    if not df.empty and "created_at" in df.columns and pd.notnull(df["created_at"]).any():
-        df["created_at"] = pd.to_datetime(df["created_at"], utc=True).dt.tz_convert(CDT)
+
+    # Handle created_at
+    if "created_at" in df.columns and pd.notnull(df["created_at"]).any():
+        df["created_at"] = pd.to_datetime(df["created_at"], utc=True, errors="coerce").dt.tz_convert(CDT)
     else:
         df["created_at"] = pd.NaT
+    # --- FIXED PART END ---
+
     safe_log(f"Loaded {len(df)} rows from database: {list(df.columns)}")
-    logging.debug(f"DataFrame head: {df.head().to_string()}")
-    logging.debug(f"Available dates: {sorted(df['date'].unique())}")
+
+    # Safe debug line — filter out None/NaT before sorting
+    valid_dates = [d for d in df["date"].unique() if d is not None]
+    logging.debug(f"Available dates: {sorted(valid_dates)}")
+
     return df
 
 def compute_deltas(df_raw: pd.DataFrame, timeframe="All") -> pd.DataFrame:
@@ -1663,9 +1844,6 @@ def trending():
     else:
         my_bots_count = df_raw["bot_id"].nunique()
 
-    bearer_token, guest_userid = capture_auth_credentials()
-
-
     # First try cache; if it looks empty, force a live fetch
     ts_map = fetch_typesense_top_bots(max_pages=10, use_cache=True)
     if not ts_map:
@@ -1919,29 +2097,52 @@ def global_trending():
 
 @app.route("/reauth", methods=["POST"])
 def reauth():
-    global AUTH_REQUIRED, SNAPSHOT_THREAD_STARTED
+    """
+    Manual reauthentication triggered from the UI banner.
+    - Launches Playwright once
+    - Waits for user to finish login
+    - Captures bearer_token + guest_userid via API calls
+    - Captures Kinde refresh_token + client_id
+    - Saves all credentials
+    - Immediately runs a snapshot
+    """
+
+    global AUTH_REQUIRED
+
+    safe_log("Reauth requested by user…")
 
     try:
-        # Capture credentials via Playwright
-        bearer, guest = capture_auth_credentials()
+        # MANUAL login flow (2.0-style, but returning 5-tuple for 2.1 compatibility)
+        access_token, guest_userid, refresh_token, expires_at, client_id = (
+            capture_auth_credentials()
+        )
 
-        # Mark auth as valid
+        if not access_token or not guest_userid:
+            raise RuntimeError("capture_auth_credentials() returned incomplete data.")
+
+        # Save new credentials
+        save_auth_credentials(
+            access_token,
+            guest_userid,
+            refresh_token,
+            expires_at,
+            client_id
+        )
+
         AUTH_REQUIRED = False
+        safe_log("Reauth successful — starting immediate snapshot.")
 
-        safe_log("Reauthentication successful — running immediate snapshot...")
-
-        # Run a snapshot immediately after auth
+        # Run a snapshot right after authentication
         try:
-            take_snapshot({})
-            safe_log("Snapshot after reauth completed.")
+            take_snapshot({"manual": True}, verbose=True)
         except Exception as e:
             safe_log(f"Snapshot after reauth failed: {e}")
 
         return jsonify({"success": True})
 
     except Exception as e:
-        safe_log(f"Reauthentication failed: {e}")
         AUTH_REQUIRED = True
+        logging.error("Reauth failed:", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -1982,32 +2183,35 @@ def reauth():
 #     app.run(host="0.0.0.0", port=args.port, debug=False)
 
 def snapshot_scheduler():
-    global AUTH_REQUIRED, RESTARTING
+    """
+    Runs every hour.
+    Attempts to refresh Kinde access token before each snapshot.
+    Pauses automatically if auth fails (AUTH_REQUIRED=True).
+    Resumes as soon as auth is restored by user reauth.
+    """
+    global AUTH_REQUIRED
 
-    # Wait one full hour before first scheduled snapshot
-    time.sleep(3600)
+    safe_log("Snapshot scheduler started (1-hour interval).")
 
     while True:
         try:
-            bearer, guest = load_auth_credentials()
+            # 1️⃣ Ensure we have a valid access token (auto-refresh)
+            bearer, guest = ensure_fresh_kinde_token()
 
-            # If missing or invalid → pause snapshots
-            if not test_auth_credentials(bearer, guest):
+            if not bearer or not guest:
                 AUTH_REQUIRED = True
-                safe_log("Snapshot scheduler paused — auth invalid.")
+                safe_log("Scheduler paused — auth invalid. Waiting for user reauth.")
             else:
                 AUTH_REQUIRED = False
-                safe_log("Auth OK — running hourly snapshot.")
-                try:
-                    take_snapshot({})
-                except Exception as e:
-                    safe_log(f"Snapshot failed: {e}")
+                safe_log("Scheduler: auth OK — running hourly snapshot.")
+                take_snapshot({})
 
         except Exception as e:
-            safe_log(f"Scheduler error: {e}")
+            logging.error(f"Scheduler error: {e}")
 
-        # Wait 1 hour
+        # Sleep for 1 hour no matter what
         time.sleep(3600)
+
 
 
 if __name__ == "__main__":
@@ -2031,7 +2235,7 @@ if __name__ == "__main__":
     define_routes()
 
     # Validate existing credentials BEFORE any snapshot happens
-    bearer, guest = load_auth_credentials()
+    bearer, guest, refresh_token, expires_at, client_id = load_auth_credentials()
     if not test_auth_credentials(bearer, guest):
         AUTH_REQUIRED = True
         safe_log("Startup auth invalid — snapshots paused until reauth.")

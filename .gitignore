@@ -10,3 +10,7 @@
 # Ignore backup directory
 backup/
 backup/*
+
+# Ignore Data Directory
+data/
+data/*

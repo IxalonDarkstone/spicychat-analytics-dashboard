@@ -17,7 +17,11 @@
 background:#1c1c1f;border:1px solid #4aa8ff;
 padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px rgba(0,0,0,0.4);">
 <h3 style="margin-top:0;color:#4aa8ff;">🔐 Authentication Required</h3>
-<p>Your SpicyChat login is missing or expired. Please reauthenticate.</p>
+<p>Your SpicyChat login is missing or expired. Please reauthenticate.</p><br>
+<p>After clicking the Re-Authenticate button below, a browser window will open.</p><br> 
+<p>Authenticate using Email authentication and use the code to login.</p><br>
+<p>DO NOT close the browser window.</p><br>
+<p>Return to the console and press enter to capture the auth tokens.</p>
 <button id="authButton" class="primary-button">Re-Authenticate</button>
 </div>
 
@@ -392,7 +396,7 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
     
         // Launch auth flow
         document.getElementById("authButton").addEventListener("click", () => {
-            fetch("/auth", { method: "POST" })
+            fetch("/reauth", { method: "POST" })
                 .then(() => console.log("Auth started"))
                 .catch(err => console.error(err));
         });
