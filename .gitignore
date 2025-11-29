@@ -1,0 +1,12 @@
+# Ignore all JSON files
+*.json
+
+# Ignore all SQLite database files
+*.db
+
+# Ignore all log files
+*.log
+
+# Ignore backup directory
+backup/
+backup/*

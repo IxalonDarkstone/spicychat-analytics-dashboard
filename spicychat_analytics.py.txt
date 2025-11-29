@@ -90,6 +90,35 @@ def safe_log(message):
         logging.info(message.encode('ascii', errors='replace').decode('ascii'))
 
 # ------------------ Utils ------------------
+def sort_creators(creators, creator_sort):
+    if not creators:
+        return creators
+    key_name = lambda c: (c.get("creator") or "").lower()
+    key_count = lambda c: int(c.get("count") or 0)
+    if creator_sort == "name_asc":
+        return sorted(creators, key=key_name)
+    if creator_sort == "name_desc":
+        return sorted(creators, key=key_name, reverse=True)
+    if creator_sort == "count_asc":
+        return sorted(creators, key=key_count)
+    # default: count_desc
+    return sorted(creators, key=key_count, reverse=True)
+
+def sort_tags(tags, tag_sort):
+    if not tags:
+        return tags
+    key_name = lambda t: (t.get("tag") or "").lower()
+    key_count = lambda t: int(t.get("count") or 0)
+    if tag_sort == "name_asc":
+        return sorted(tags, key=key_name)
+    if tag_sort == "name_desc":
+        return sorted(tags, key=key_name, reverse=True)
+    if tag_sort == "count_asc":
+        return sorted(tags, key=key_count)
+    # default: count_desc
+    return sorted(tags, key=key_count, reverse=True)
+
+
 def set_last_snapshot_time():
     ts = datetime.now(CDT).strftime("%Y-%m-%d %I:%M %p")
     with sqlite3.connect(DATABASE) as conn:
@@ -1377,6 +1406,8 @@ def define_routes():
     if _routes_defined:
         return
 
+    register_jinja_filters(app)
+
     @app.route("/")
     def index():
         chart_sort_by = request.args.get("chart_sort_by", "7day")
@@ -1650,7 +1681,7 @@ def api_bot_history(bot_id):
             "page": page,
         })
 
-    return jsonify({"bot_id": bot_id, "points": points})        
+    return jsonify({"bot_id": bot_id, "points": points})
 
 
 @app.route("/bot/<bot_id>")
@@ -1970,6 +2001,12 @@ def global_trending():
     active_tab = request.args.get("tab", "creators")
 
     # --------------------------------------------
+    # Sidebar sort params (default: count descending)
+    # --------------------------------------------
+    creator_sort = request.args.get("creator_sort", "count_desc")
+    tag_sort = request.args.get("tag_sort", "count_desc")
+
+    # --------------------------------------------
     # Fetch trending: filtered (Female + NSFW) for grid
     # --------------------------------------------
     ts_map_filtered = fetch_typesense_top_bots(
@@ -2071,6 +2108,13 @@ def global_trending():
 
     creators = [{"creator": c, "count": n, "count_fmt": fmt_commas(n)} for c, n in creator_counts.items()]
 
+    # Apply dynamic sorting for creators
+    c_reverse = ("desc" in creator_sort)
+    if "name" in creator_sort:
+        creators = sorted(creators, key=lambda x: x["creator"].lower(), reverse=c_reverse)
+    else:  # default to count
+        creators = sorted(creators, key=lambda x: x["count"], reverse=c_reverse)
+
     # --------------------------------------------
     # Tag leaderboard (filtered trending — matches grid)
     # --------------------------------------------
@@ -2080,12 +2124,23 @@ def global_trending():
             tag_counts[t] = tag_counts.get(t, 0) + 1
 
     tags = [{"tag": t, "count": c, "count_fmt": fmt_commas(c)} for t, c in tag_counts.items()]
-       
+
+    # Apply dynamic sorting for tags
+    t_reverse = ("desc" in tag_sort)
+    if "name" in tag_sort:
+        tags = sorted(tags, key=lambda x: x["tag"].lower(), reverse=t_reverse)
+    else:  # default to count
+        tags = sorted(tags, key=lambda x: x["count"], reverse=t_reverse)
+
     return render_template(
         "global_trending.html",
         bots=page_items,
         creators=creators,
         tags=tags,
+        # pass sort state so the macro and links work
+        creator_sort=creator_sort,
+        tag_sort=tag_sort,
+        # grid controls and filters
         page=page,
         total_pages=total_pages,
         sort_field=sort_field,
