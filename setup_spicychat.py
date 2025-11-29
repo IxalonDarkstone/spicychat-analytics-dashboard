@@ -32,9 +32,7 @@ def setup_directories():
     folders = [
         "data",
         "logs",
-        "charts",
         "static",
-        "static/charts",
         "templates"
     ]
     for f in folders:
