@@ -663,18 +663,22 @@ def multi_search_request(payload):
         "X-TYPESENSE-API-KEY": TYPESENSE_KEY,
         "Content-Type": "application/json",
     }
-    try:
-        r = requests.post(
-            TYPESENSE_SEARCH_ENDPOINT,
-            headers=headers,
-            json=payload,
-            timeout=10
-        )
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        safe_log(f"Typesense request failed: {e}")
-        raise
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                TYPESENSE_SEARCH_ENDPOINT,
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=25
+            )
+            response.raise_for_status()
+            break
+        except Exception as e:
+            logging.warning(f"[Typesense] Attempt {attempt+1} failed: {e}")
+            time.sleep(2)
+    else:
+        logging.error("Failed to refresh Typesense trending cache after retries.")
+        return {}
 
 def save_rank_history_for_date(stamp, ts_map):
     """
