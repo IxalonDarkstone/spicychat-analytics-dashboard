@@ -816,6 +816,7 @@ def capture_payloads(bearer_token, guest_userid, max_retries=3, delay=5):
     raise RuntimeError(f"Failed to capture payloads after {max_retries} attempts")
 
 # ------------------ Typesense fetch (Trending) ------------------
+# ------------------ Typesense fetch (Trending) ------------------
 def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=True):
     """
     Fetch Top Bots from Typesense.
@@ -978,6 +979,7 @@ def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=Tr
         return {}
 
     return {b["character_id"]: b for b in ALL_RESULTS}
+
 # ------------------ Snapshot ------------------
 def sanitize_rows(rows):
     return [{k: r.get(k, "") for k in ALLOWED_FIELDS} for r in rows]
