@@ -816,7 +816,6 @@ def capture_payloads(bearer_token, guest_userid, max_retries=3, delay=5):
     raise RuntimeError(f"Failed to capture payloads after {max_retries} attempts")
 
 # ------------------ Typesense fetch (Trending) ------------------
-# ------------------ Typesense fetch (Trending) ------------------
 def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=True):
     """
     Fetch Top Bots from Typesense.
@@ -979,7 +978,6 @@ def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=Tr
         return {}
 
     return {b["character_id"]: b for b in ALL_RESULTS}
-
 # ------------------ Snapshot ------------------
 def sanitize_rows(rows):
     return [{k: r.get(k, "") for k in ALLOWED_FIELDS} for r in rows]
@@ -2274,8 +2272,6 @@ def snapshot_scheduler():
         # Sleep for 1 hour no matter what
         time.sleep(3600)
 
-
-
 if __name__ == "__main__":
     setup_logging()
     ensure_dirs()
@@ -2294,6 +2290,10 @@ if __name__ == "__main__":
     CURRENT_PORT = args.port
     NO_SNAPSHOT_MODE = args.no_snapshot
 
+    # TEMP DEBUG
+    print(f"[DEBUG] Command-line args parsed: no_snapshot={args.no_snapshot}, NO_SNAPSHOT_MODE={NO_SNAPSHOT_MODE}")
+    print(f"[DEBUG] Auth check: AUTH_REQUIRED={AUTH_REQUIRED} (will be set next)")
+
     define_routes()
 
     # Validate existing credentials BEFORE any snapshot happens
@@ -2304,16 +2304,17 @@ if __name__ == "__main__":
     else:
         safe_log("Startup auth valid.")
 
-    # STARTUP SNAPSHOT (only if auth good)
+    # FIXED: STARTUP SNAPSHOT — only if NOT no_snapshot AND auth is good
     if not NO_SNAPSHOT_MODE and not AUTH_REQUIRED:
         safe_log("Running startup snapshot…")
         try:
             take_snapshot({})
         except Exception as e:
             safe_log(f"Startup snapshot failed: {e}")
+    elif NO_SNAPSHOT_MODE:
+        safe_log("Startup snapshot skipped due to --no_snapshot flag.")
 
-
-    # HOURLY SCHEDULER (always runs)
+    # HOURLY SCHEDULER (always runs, unless you want to conditionalize it too)
     if not SNAPSHOT_THREAD_STARTED:
         threading.Thread(target=snapshot_scheduler, daemon=True).start()
         SNAPSHOT_THREAD_STARTED = True
