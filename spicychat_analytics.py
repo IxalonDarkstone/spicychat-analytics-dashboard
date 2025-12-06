@@ -957,12 +957,15 @@ def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=Tr
                 "avatar_url": doc.get("avatar_url") or "",
                 "creator_username": doc.get("creator_username") or "",
                 "creator_user_id": doc.get("creator_user_id") or "",
-                "tags": doc.get("tags", []) or [],      # <-- IMPORTANT!
+                "tags": doc.get("tags", []) or [],
                 "is_nsfw": bool(doc.get("is_nsfw", False)),
+                "visibility": doc.get("visibility", "unknown"),           # ⭐ NEW
+                "definition_visible": doc.get("definition_visible", None), # optional
                 "link": f"https://spicychat.ai/chat/{cid}",
                 "page": page,
                 "rank": rank,
             }
+
 
             ALL_RESULTS.append(bot)
 
