@@ -654,15 +654,18 @@ def init_db():
         conn.commit()
 
     safe_log(f"Database initialized/verified at {DATABASE}")
+
 # ------------------ Typesense Client Wrapper ------------------
 def multi_search_request(payload):
     """
     Wrapper for Typesense's multi_search endpoint using your public API key.
+    Guaranteed to always return a dict (or {}), never None.
     """
     headers = {
         "X-TYPESENSE-API-KEY": TYPESENSE_KEY,
         "Content-Type": "application/json",
     }
+
     for attempt in range(3):
         try:
             response = requests.post(
@@ -671,14 +674,40 @@ def multi_search_request(payload):
                 data=json.dumps(payload),
                 timeout=25
             )
-            response.raise_for_status()
-            break
-        except Exception as e:
-            logging.warning(f"[Typesense] Attempt {attempt+1} failed: {e}")
+            response.raise_for_status()  # Raises HTTPError for 4xx/5xx
+
+            # Log response details for debugging
+            safe_log(f"[Typesense] Attempt {attempt+1}: Status {response.status_code}, Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+            safe_log(f"[Typesense] Response preview: {response.text[:200]}...")  # Truncated for logs
+
+            # Must be JSON. If not, treat as failure.
+            try:
+                data = response.json()
+                if isinstance(data, dict):
+                    safe_log(f"[Typesense] Success: Got dict with {len(data.get('results', []))} result sets")
+                    return data
+                else:
+                    logging.error(f"[Typesense] Non-dict JSON returned (type: {type(data)}), using empty fallback.")
+                    return {}
+            except Exception as e:
+                logging.error(f"[Typesense] Invalid JSON response: {e}. Text: {response.text[:500]}")
+                return {}
+
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"[Typesense] HTTP error (attempt {attempt+1}): {e}. Status: {response.status_code if 'response' in locals() else 'N/A'}")
+            if hasattr(e, 'response') and e.response.status_code == 429:
+                time.sleep(2 ** attempt)  # Exponential backoff for rate limits
+            else:
+                time.sleep(2)
+        except requests.exceptions.RequestException as e:
+            logging.warning(f"[Typesense] Network/Request error (attempt {attempt+1}): {e}")
             time.sleep(2)
-    else:
-        logging.error("Failed to refresh Typesense trending cache after retries.")
-        return {}
+        except Exception as e:
+            logging.error(f"[Typesense] Unexpected error (attempt {attempt+1}): {e}")
+            time.sleep(2)
+
+    logging.error("[Typesense] All attempts failed → using empty fallback {}.")
+    return {}
 
 def save_rank_history_for_date(stamp, ts_map):
     """
@@ -796,22 +825,20 @@ def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=Tr
     import pathlib
 
     # Separate caches for filtered and unfiltered trending
-    if filter_female_nsfw:
-        TRENDS_CACHE = pathlib.Path("data/ts_filtered_480.json")
-    else:
-        TRENDS_CACHE = pathlib.Path("data/ts_unfiltered_480.json")
+    cache_file = DATA_DIR / ("ts_filtered_480.json" if filter_female_nsfw else "ts_unfiltered_480.json")
 
     # --------------------
     # CACHE READ
     # --------------------
-    if use_cache and TRENDS_CACHE.exists():
+    if use_cache and cache_file.exists():
         try:
-            with open(TRENDS_CACHE, "r", encoding="utf-8") as f:
+            with open(cache_file, "r", encoding="utf-8") as f:
                 cached = json.load(f)
-
-            # If cached data contains tags and already matches our data model,
-            # return immediately.
-            return {b["character_id"]: b for b in cached if "character_id" in b}
+            if isinstance(cached, list) and all("character_id" in b for b in cached):
+                safe_log(f"Loaded {len(cached)} bots from cache: {cache_file}")
+                return {b["character_id"]: b for b in cached}
+            else:
+                safe_log(f"Cache invalid (not list or missing keys): {cache_file}")
         except Exception as e:
             safe_log(f"Failed reading cached Typesense results: {e}")
 
@@ -833,7 +860,7 @@ def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=Tr
         filter_clause = (
             "application_ids:spicychat && tags:![Step-Family] && "
             "creator_user_id:!['kp:018d4672679e4c0d920ad8349061270c','kp:2f4c9fcbdb0641f3a4b960bfeaf1ea0b'] "
-            "&& type:STANDARD && tags:[`Female`] && tags:[`NSFW`]"
+            "&& type:STANDARD && tags:[\"Female\"] && tags:[\"NSFW\"]"  # Changed backticks to quotes for safety
         )
     else:
         filter_clause = (
@@ -870,24 +897,36 @@ def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=Tr
         }
 
         result = multi_search_request(payload)
-        results_page = result.get("results", [])
-        if not results_page:
+
+        # FIXED: Prevent NoneType errors — ensure result is dict
+        if not isinstance(result, dict):
+            logging.error(f"Typesense returned invalid result (type: {type(result)}) for page {page}. Skipping.")
             break
 
-        hits = results_page[0].get("hits", [])
-        if not hits:
+        results_page = result.get("results", [])
+        if not results_page:
+            safe_log(f"No results page for page {page} — stopping.")
             break
+
+        hits = results_page[0].get("hits", []) if len(results_page) > 0 else []
+        if not hits:
+            safe_log(f"No hits for page {page} — stopping.")
+            break
+
+        safe_log(f"Page {page}: Fetched {len(hits)} hits")
 
         # --------------------
         # Build bot list
         # --------------------
         for obj in hits:
             doc = obj.get("document")
-            if not doc:
+            if not isinstance(doc, dict):
+                logging.warning(f"Invalid document in hit: {obj}")
                 continue
 
             cid = doc.get("character_id")
             if not cid:
+                logging.warning(f"Missing character_id in doc: {doc}")
                 continue
 
             rank = len(ALL_RESULTS) + 1
@@ -912,21 +951,33 @@ def fetch_typesense_top_bots(max_pages=10, use_cache=True, filter_female_nsfw=Tr
 
         page += 1
 
+        # Early exit if no more data
+        if len(hits) < per_page:
+            safe_log(f"Partial page {page-1} ({len(hits)} < {per_page}) — assuming end of results.")
+            break
+
     # --------------------
     # CACHE WRITE
     # --------------------
-    try:
-        TRENDS_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        with open(TRENDS_CACHE, "w", encoding="utf-8") as f:
-            json.dump(ALL_RESULTS, f, indent=2)
-        safe_log(f"Saved {len(ALL_RESULTS)} bots to Typesense cache.")
-    except Exception as e:
-        safe_log(f"Failed writing Typesense cache: {e}")
+    if ALL_RESULTS:
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(ALL_RESULTS, f, indent=2)
+            safe_log(f"Saved {len(ALL_RESULTS)} bots to Typesense cache: {cache_file}")
+        except Exception as e:
+            safe_log(f"Failed writing Typesense cache: {e}")
+    else:
+        safe_log("No results to cache — using empty dict.")
 
-    # Return as dict keyed by character_id
+    # --------------------
+    # SAFE RETURN
+    # --------------------
+    if not ALL_RESULTS:
+        safe_log("WARNING: fetch_typesense_top_bots() produced no results. Returning empty dict.")
+        return {}
+
     return {b["character_id"]: b for b in ALL_RESULTS}
-
-
 # ------------------ Snapshot ------------------
 def sanitize_rows(rows):
     return [{k: r.get(k, "") for k in ALLOWED_FIELDS} for r in rows]
@@ -1045,7 +1096,12 @@ def take_snapshot(args, verbose=True):
     try:
         safe_log("Refreshing Typesense trending cache (top 480 bots)")
         ts_map = fetch_typesense_top_bots(max_pages=10, use_cache=False)
+        if not isinstance(ts_map, dict):
+            safe_log("Typesense refresh failed — got invalid ts_map")
+            ts_map = {}
+
         safe_log(f"Typesense trending cache updated successfully ({len(ts_map)} entries)")
+
     except Exception as e:
         logging.error(f"Failed to refresh Typesense trending cache: {e}")
         ts_map = {}
@@ -2216,8 +2272,6 @@ def snapshot_scheduler():
         # Sleep for 1 hour no matter what
         time.sleep(3600)
 
-
-
 if __name__ == "__main__":
     setup_logging()
     ensure_dirs()
@@ -2236,6 +2290,10 @@ if __name__ == "__main__":
     CURRENT_PORT = args.port
     NO_SNAPSHOT_MODE = args.no_snapshot
 
+    # TEMP DEBUG
+    print(f"[DEBUG] Command-line args parsed: no_snapshot={args.no_snapshot}, NO_SNAPSHOT_MODE={NO_SNAPSHOT_MODE}")
+    print(f"[DEBUG] Auth check: AUTH_REQUIRED={AUTH_REQUIRED} (will be set next)")
+
     define_routes()
 
     # Validate existing credentials BEFORE any snapshot happens
@@ -2246,16 +2304,17 @@ if __name__ == "__main__":
     else:
         safe_log("Startup auth valid.")
 
-    # STARTUP SNAPSHOT (only if auth good)
+    # FIXED: STARTUP SNAPSHOT — only if NOT no_snapshot AND auth is good
     if not NO_SNAPSHOT_MODE and not AUTH_REQUIRED:
         safe_log("Running startup snapshot…")
         try:
             take_snapshot({})
         except Exception as e:
             safe_log(f"Startup snapshot failed: {e}")
+    elif NO_SNAPSHOT_MODE:
+        safe_log("Startup snapshot skipped due to --no_snapshot flag.")
 
-
-    # HOURLY SCHEDULER (always runs)
+    # HOURLY SCHEDULER (always runs, unless you want to conditionalize it too)
     if not SNAPSHOT_THREAD_STARTED:
         threading.Thread(target=snapshot_scheduler, daemon=True).start()
         SNAPSHOT_THREAD_STARTED = True
