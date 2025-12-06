@@ -235,17 +235,34 @@ def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_afte
             "rank_tier": rank_tier,  # "top240" / "top480" / None
         })
 
-    # Sorting behavior
+    # ================================
+    # SORTING LOGIC WITH RANK OPTION
+    # ================================
+
     reverse = not sort_asc
-    if sort_by == "name":
-        bots.sort(key=lambda b: b["name"].lower(), reverse=reverse)
-    elif sort_by == "total":
-        bots.sort(key=lambda b: b["total"], reverse=reverse)
-    elif sort_by == "created_at":
-        bots.sort(key=lambda b: b["created_at"] or "", reverse=reverse)
+
+    if sort_by == "rank":
+        # Primary: ranked bots first sorted ASC
+        # Secondary: unranked bots by delta DESC
+        def rank_sort_key(b):
+            rank = b.get("rank")
+            if rank is not None:
+                return (0, rank)        # ranked group, ascending
+            return (1, -b["delta"])     # unranked group, delta DESC
+
+        bots.sort(key=rank_sort_key)
+
     else:
-        # default: sort by delta
-        bots.sort(key=lambda b: b["delta"], reverse=reverse)
+        # Regular sort options (existing behavior)
+        if sort_by == "name":
+            bots.sort(key=lambda b: b["name"].lower(), reverse=reverse)
+        elif sort_by == "total":
+            bots.sort(key=lambda b: b["total"], reverse=reverse)
+        elif sort_by == "created_at":
+            bots.sort(key=lambda b: b["created_at"] or "", reverse=reverse)
+        else:
+            bots.sort(key=lambda b: b["delta"], reverse=reverse)
+
 
     total_messages = int(totals_df["num_messages"].iloc[0]) if not totals_df.empty else 0
 
