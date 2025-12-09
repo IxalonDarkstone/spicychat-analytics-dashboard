@@ -10,13 +10,31 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+    <div id="authWarning"
+    style="display: {{ 'block' if auth_required else 'none' }};
+           background:#1c1c1f;
+           border:1px solid #ff4444;
+           padding:16px;
+           margin-bottom:20px;
+           border-radius:8px;
+           color:#eee;
+           font-size:16px;">
+   
+   <strong>Authentication Required</strong><br>
+   Your SpicyChat credentials are missing or expired.<br>
+   Please re-authenticate to resume snapshots.
+   <br><br>
+   <button id="authButton" class="primary-button">Re-Authenticate</button>
+</div>
+
 <div class="container">
 
     
-<div id="authWarning" style="display:none;
-background:#1c1c1f;border:1px solid #4aa8ff;
-padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px rgba(0,0,0,0.4);">
-
+    <div id="authWarning"
+        style="display: {{ 'block' if auth_required else 'none' }};
+            background:#1c1c1f; border:1px solid #4aa8ff;
+            padding:20px; margin-bottom:20px; border-radius:8px;
+            color:#eee; box-shadow:0 0 8px rgba(0,0,0,0.4);">
 
     <div class="auth-box">
         <h3 style="margin-top:0;color:#4aa8ff;">🔐 Authentication Required</h3>
@@ -27,9 +45,10 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
         <p>⚠️<strong>Do not close the browser window</strong> after logging in.</p>
         <p>Return to the console and press Enter to capture tokens.</p>
         <p>If you get an error, use the second browser instance. Both will close upon capture.</p>
-    
         <button id="authButton" class="primary-button">Re-Authenticate</button>
     </div>
+
+
 
 </div>
 
@@ -53,11 +72,10 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
             
 
             <div class="header-actions" style="display:flex; gap:10px; align-items:center;">
+                <button id="authRefreshButton" class="primary-button">Auth Refresh</button>                
                 <form action="/take-snapshot" method="post" class="action-form">
                     <button type="submit" class="primary-button">Take Snapshot</button>
                 </form>
-
-                <!-- NEW: Global Trending Button -->
                 <a href="/global-trending" class="primary-button">Global Trending</a>
             </div>
         </div>
@@ -385,7 +403,6 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
     
     // Auto-refresh at top of hour when auth is OK
     function scheduleDashboardRefresh() {
-        // Refresh dashboard every 15 minutes (900,000 ms) IF auth is fine
         setInterval(async () => {
             const res = await fetch("/api/snapshot_status");
             const status = await res.json();
@@ -398,29 +415,27 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
     
     document.addEventListener("DOMContentLoaded", function() {
     
-        // Check auth status every 60 seconds
+        // Check auth status every 15 minutes
         setInterval(checkStatus, 900000);
         checkStatus();
         scheduleDashboardRefresh();
-    
-        // Launch auth flow
-        document.getElementById("authButton").addEventListener("click", () => {
-            fetch("/reauth", { method: "POST" })
-                .then(() => console.log("Auth started"))
-                .catch(err => console.error(err));
-        });
+
+        // ❌ REMOVED — duplicate handler that caused double browser windows
+        //
+        // document.getElementById("authButton").addEventListener("click", () => {
+        //     fetch("/reauth", { method: "POST" })
+        //         .then(() => console.log("Auth started"))
+        //         .catch(err => console.error(err));
+        // });
     });
 
-    // ---------------------------
     // Hide / Show Totals Table + Persistence
-    // ---------------------------
     document.addEventListener("DOMContentLoaded", () => {
         const btn = document.getElementById("toggleTotals");
         const content = document.getElementById("totalsContent");
-    
+
         if (!btn || !content) return;
-    
-        // Load saved state
+
         const saved = localStorage.getItem("totals_hidden");
     
         if (saved === "true") {
@@ -430,8 +445,7 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
             content.style.display = "block";
             btn.textContent = "Hide Totals Table";
         }
-    
-        // Toggle + persist
+
         btn.addEventListener("click", () => {
             const hidden = content.style.display === "none";
     
@@ -446,22 +460,47 @@ padding:20px;margin-bottom:20px;border-radius:8px;color:#eee;box-shadow:0 0 8px 
             }
         });
     });
+</script>
+
+<!-- KEEP THIS ONE — the correct single handler -->
+<script>
+    document.getElementById("authButton").addEventListener("click", async () => {
+        const res = await fetch("/reauth", { method: "POST" });
+        const data = await res.json();
     
-    </script>
-    <script>
-        document.getElementById("authButton").addEventListener("click", async () => {
-            const res = await fetch("/reauth", { method: "POST" });
-            const data = await res.json();
-        
-            if (data.success) {
-                alert("Authentication successful! Dashboard will refresh.");
-                location.reload();
-            } else {
-                alert("Authentication failed: " + data.error);
-            }
-        });
-    </script>
-                
-        
+        if (data.success) {
+            alert("Authentication successful! Dashboard will refresh.");
+            location.reload();
+        } else {
+            alert("Authentication failed: " + data.error);
+        }
+    });
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const btn = document.getElementById("authRefreshButton");
+    if (!btn) return;
+
+    btn.addEventListener("click", async () => {
+        const res = await fetch("/reauth", { method: "POST" });
+        let data = null;
+
+        try {
+            data = await res.json();
+        } catch (e) {
+            alert("Auth workflow started. A browser window should now open.");
+            return;
+        }
+
+        if (data.success) {
+            alert("Authentication successful! Dashboard will refresh.");
+            location.reload();
+        } else {
+            alert("Authentication failed: " + data.error);
+        }
+    });
+});
+</script>
+       
 </body>
 </html>

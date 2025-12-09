@@ -1,10 +1,9 @@
 import os
 import sys
-import shutil
 import logging
-from pathlib import Path
 import sqlite3
 import subprocess
+from pathlib import Path
 
 # ---------------------------------------------
 # Logging
@@ -19,14 +18,11 @@ logging.basicConfig(
 )
 
 def log(msg):
-    try:
-        logging.info(msg)
-    except:
-        logging.info(msg.encode("ascii", errors="replace").decode("ascii"))
+    logging.info(msg)
 
 
 # ---------------------------------------------
-# Create folders
+# Create required directories
 # ---------------------------------------------
 def setup_directories():
     folders = [
@@ -41,15 +37,13 @@ def setup_directories():
 
 
 # ---------------------------------------------
-# Full database initialization
+# Initialize SQLite database and tables
 # ---------------------------------------------
 def initialize_database():
-
-    database = Path("data/spicychat.db")
-
+    db_path = Path("data/spicychat.db")
     log("Initializing SQLite database...")
 
-    conn = sqlite3.connect(database)
+    conn = sqlite3.connect(db_path)
     c = conn.cursor()
 
     # Bots table
@@ -67,7 +61,7 @@ def initialize_database():
     )
     """)
 
-    # Rank history
+    # Rank history (global trending)
     c.execute("""
     CREATE TABLE IF NOT EXISTS bot_rank_history (
         date TEXT,
@@ -78,7 +72,7 @@ def initialize_database():
     )
     """)
 
-    # Counts of your bots in trending lists
+    # Trending counts
     c.execute("""
     CREATE TABLE IF NOT EXISTS top240_history (
         date TEXT PRIMARY KEY,
@@ -95,33 +89,24 @@ def initialize_database():
 
     conn.commit()
     conn.close()
-
     log("Database initialized successfully!")
 
 
 # ---------------------------------------------
-# Install Python dependencies
+# Install dependencies using requirements.txt
 # ---------------------------------------------
 def install_dependencies():
-    required = [
-        "flask",
-        "pandas",
-        "numpy",
-        "matplotlib",
-        "playwright",
-        "requests",
-        "pytz",
-        "typesense",
-        "openpyxl"
-    ]
+    log("Installing Python packages from requirements.txt...")
 
-    log("Installing Python packages...")
-    for pkg in required:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
-        log(f"Installed: {pkg}")
+    if not Path("requirements.txt").exists():
+        raise FileNotFoundError("requirements.txt is missing!")
 
-    log("Installing Playwright Chromium browser...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    log("Python dependencies installed.")
+
+    log("Installing Playwright Chromium browser…")
     subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+    log("Playwright installation complete.")
 
 
 # ---------------------------------------------
@@ -132,6 +117,7 @@ def main():
 
     setup_directories()
 
+    # Allow DB-only mode
     if "--init-db" in sys.argv:
         initialize_database()
         log("Database-only initialization complete.")
@@ -141,7 +127,7 @@ def main():
     initialize_database()
 
     log("Setup complete!")
-    log("Run: python spicychat_analytics.py")
+    log("Run the dashboard with: python spicychat_analytics.py")
 
 
 if __name__ == "__main__":
