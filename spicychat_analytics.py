@@ -586,11 +586,30 @@ def capture_auth_credentials(wait_rounds=18):
         print("Log into SpicyChat. After logging in, navigate to My Chatbots.")
         input("Press Enter when you are fully logged in and on My Chatbots...")
 
-        # Wait for traffic & capture
-        for _ in range(wait_rounds):
+        # wait for navigation safely
+        try:
             page.wait_for_load_state("networkidle", timeout=15000)
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            time.sleep(0.3)
+        except:
+            pass
+
+        # safe scrolling wrapper
+        def safe_scroll():
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            except Exception:
+                # execution context destroyed -> page navigated -> ignore
+                pass
+
+        # attempt scrolls but without crashing
+        for _ in range(5):
+            safe_scroll()
+            time.sleep(0.5)
+
+        # # Wait for traffic & capture
+        # for _ in range(wait_rounds):
+        #     page.wait_for_load_state("networkidle", timeout=15000)
+        #     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        #     time.sleep(0.3)
 
         ctx.close()
         browser.close()
