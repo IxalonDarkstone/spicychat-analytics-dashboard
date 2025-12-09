@@ -605,6 +605,11 @@ def capture_auth_credentials(wait_rounds=18):
             safe_scroll()
             time.sleep(0.5)
 
+        # # Wait for traffic & capture
+        # for _ in range(wait_rounds):
+        #     page.wait_for_load_state("networkidle", timeout=15000)
+        #     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        #     time.sleep(0.3)
 
         ctx.close()
         browser.close()
