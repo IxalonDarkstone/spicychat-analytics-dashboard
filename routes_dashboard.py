@@ -72,10 +72,11 @@ def register_dashboard_routes(app):
         available_dates = [d for d in all_dates if d <= today_date]
         latest = available_dates[0] if available_dates else all_dates[0]
 
-        latest_rows = dfc[dfc["date"] == latest]
+        # Build totals history across all dates, sorted descending (today first)
         totals = (
-            latest_rows.groupby("date", as_index=False)
-            .agg({"num_messages": "sum", "daily_messages": "sum"})
+            dfc.groupby("date", as_index=False)
+                .agg({"num_messages": "sum", "daily_messages": "sum"})
+                .sort_values("date", ascending=False)
         )
 
         totals_data = [
