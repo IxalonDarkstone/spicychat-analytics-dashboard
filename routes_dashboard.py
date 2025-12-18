@@ -27,6 +27,8 @@ def register_dashboard_routes(app):
         sort_asc = request.args.get("sort_asc", "false") == "true"
         created_after = request.args.get("created_after", "All")
         timeframe = request.args.get("timeframe", "All")
+        tags = request.args.get("tags", "")  # comma-separated
+
 
         safe_log(
             f"Index route: chart_sort_by={chart_sort_by}, "
@@ -62,6 +64,7 @@ def register_dashboard_routes(app):
                 timeframe=timeframe,
                 AUTH_REQUIRED=AUTH_REQUIRED,         # ← REQUIRED
                 last_snapshot=get_last_snapshot_time(), # ← REQUIRED
+                tags=tags,
             )
 
 
@@ -96,6 +99,7 @@ def register_dashboard_routes(app):
                 sort_by=sort_by,
                 sort_asc=sort_asc,
                 created_after=created_after,
+                tags=tags,
             )
             total_bots = len(bots)
         except Exception as e:
@@ -126,6 +130,7 @@ def register_dashboard_routes(app):
             timeframe=timeframe,
             auth_required=AUTH_REQUIRED,            # ← REQUIRED
             last_snapshot=get_last_snapshot_time(), # ← REQUIRED
+            tags=tags,
         )
 
     @app.route("/take-snapshot", methods=["POST"])

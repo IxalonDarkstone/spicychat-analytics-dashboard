@@ -494,6 +494,17 @@ def init_db():
             """
         )
 
+        #bots_tags table
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bot_tags (
+                bot_id TEXT PRIMARY KEY,
+                tags_json TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+
         # Back-compat: ensure avatar_url exists for very old DBs
         c.execute("PRAGMA table_info(bots)")
         columns = {row[1] for row in c.fetchall()}
@@ -1166,6 +1177,17 @@ def take_snapshot(args=None, verbose=True):
     except Exception as e:
         logging.error(f"Error saving top-level histories: {e}")
 
+    # ----------------------------
+    # Cache tags for "My Chatbots"
+    # ----------------------------
+    try:
+        your_ids = [str(r["bot_id"]) for r in rows_clean]
+        tag_map = fetch_typesense_tags_for_bot_ids(your_ids)  # your existing function
+        save_cached_tag_map(tag_map)
+        safe_log(f"Cached tags for {len(tag_map)} bots (My Chatbots)")
+    except Exception as e:
+        safe_log(f"Tag caching failed: {e}")
+
     LAST_SNAPSHOT_DATE = snapshot_time.isoformat()
     safe_log(f"Snapshot complete at {LAST_SNAPSHOT_DATE}")
 
@@ -1325,9 +1347,8 @@ def compute_deltas(df_raw: pd.DataFrame, timeframe="All") -> pd.DataFrame:
     return df
 
 # ------------------ Dashboard bots data ------------------
-def get_bots_data(
-    timeframe="All", sort_by="delta", sort_asc=False, created_after="All"
-):
+def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_after="All", tags=""):
+
     """
     Load snapshot history from DB, compute deltas for the given timeframe,
     and build the list of bots for the dashboard.
@@ -1364,7 +1385,7 @@ def get_bots_data(
     today = dfc[dfc["date"] == latest_date].copy()
     # Build tag_map for *your* bots (not just top480)
     your_ids = [str(x) for x in today["bot_id"].tolist()]
-    tag_map = fetch_typesense_tags_for_bot_ids(your_ids)
+    tag_map = load_cached_tag_map(today["bot_id"].tolist())
 
 
     # Totals history for the totals table (the big chart uses /api/totals)
@@ -1445,7 +1466,16 @@ def get_bots_data(
                 "tags": tag_map.get(str(bot_id), []),
             }
         )
+        
+    # --- Tag filter (AND logic) ---
+    required_tags = [t.strip().lower() for t in (tags or "").split(",") if t.strip()]
+    if required_tags:
+        def has_all_tags(bot):
+            bot_tags = [str(t).lower() for t in (bot.get("tags") or [])]
+            return all(t in bot_tags for t in required_tags)
 
+        bots = [b for b in bots if has_all_tags(b)]
+        
     # Sorting
     reverse = not sort_asc
     if sort_by == "name":
@@ -1462,6 +1492,52 @@ def get_bots_data(
     )
 
     return bots, totals, total_messages, latest_date
+
+def load_cached_tag_map(bot_ids=None):
+    """Return {bot_id(str): [tags]} from SQLite cache."""
+    init_db()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+
+    if bot_ids:
+        ids = [str(x) for x in bot_ids]
+        placeholders = ",".join(["?"] * len(ids))
+        cur.execute(
+            f"SELECT bot_id, tags_json FROM bot_tags WHERE bot_id IN ({placeholders})",
+            ids
+        )
+    else:
+        cur.execute("SELECT bot_id, tags_json FROM bot_tags")
+
+    rows = cur.fetchall()
+    conn.close()
+
+    out = {}
+    for bot_id, tags_json in rows:
+        try:
+            out[str(bot_id)] = json.loads(tags_json) if tags_json else []
+        except Exception:
+            out[str(bot_id)] = []
+    return out
+
+
+def save_cached_tag_map(tag_map):
+    """Upsert {bot_id: [tags]} into SQLite cache."""
+    if not tag_map:
+        return
+
+    init_db()
+    now = datetime.now(tz=CDT).isoformat()
+    rows = [(str(k), json.dumps(v), now) for k, v in tag_map.items()]
+
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+    cur.executemany(
+        "INSERT OR REPLACE INTO bot_tags (bot_id, tags_json, updated_at) VALUES (?, ?, ?)",
+        rows
+    )
+    conn.commit()
+    conn.close()
 
 # ------------------ Snapshot scheduler ------------------
 def snapshot_scheduler():
