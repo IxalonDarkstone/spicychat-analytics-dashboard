@@ -67,7 +67,18 @@
         <div class="bot-stats">Total: {{ bot.total_fmt }}</div>
         <div class="bot-stats">Delta: {{ bot.delta_fmt }}</div>
         <div class="bot-stats">Created: {{ bot.created_at }}</div>
-        <a href="{{ url_for('bot_detail', bot_id=bot.bot_id) }}" class="details-link">Details</a>
+        <div class="bot-actions">
+            <a href="{{ url_for('bot_detail', bot_id=bot.bot_id) }}"
+               class="details-link">
+                Details
+            </a>
+        
+            <a href="https://spicychat.ai/chatbot/edit/{{ bot.bot_id }}"
+               target="_blank"
+               class="details-link">
+                Edit
+            </a>
+        </div>
     </div>
     {% endfor %}
 </div>
