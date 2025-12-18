@@ -14,3 +14,7 @@ backup/*
 # Ignore Data Directory
 data/
 data/*
+
+__pycache__/
+
+.megaignore

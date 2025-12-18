@@ -478,3 +478,18 @@ a {
 .auth-box button {
     margin-top: 12px;            /* keep button separated */
 }
+.bot-tags {
+    margin: 8px 0 6px 0;
+}
+
+.bot-tags .tag {
+    display: inline-block;
+    padding: 2px 6px;
+    margin: 2px;
+    font-size: 11px;
+    border-radius: 6px;
+    background: var(--accent-color);
+    color: #000;
+    font-weight: 600;
+    white-space: nowrap;
+}

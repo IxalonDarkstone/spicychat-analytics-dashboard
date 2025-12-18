@@ -12,6 +12,13 @@
         </a>
         <div class="bot-name">{{ bot.name }}</div>
         <div class="bot-title">{{ bot.title }}</div>
+        {% if bot.tags %}
+        <div class="bot-tags">
+            {% for tag in bot.tags %}
+                <span class="tag">{{ tag }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
         <div class="bot-stats">Total: {{ bot.total_fmt }}</div>
         <div class="bot-stats">Delta: {{ bot.delta_fmt }}</div>
         <div class="bot-stats">Created: {{ bot.created_at }}</div>
@@ -66,6 +73,7 @@
         color: #b0b0b0;
         margin-bottom: 10px;
     }
+
     .bot-stats {
         font-size: 14px;
         color: #e0e0e0;

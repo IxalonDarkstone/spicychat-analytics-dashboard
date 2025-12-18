@@ -544,6 +544,29 @@ def init_db():
     safe_log(f"Database initialized/verified at {DATABASE}")
 
 # ------------------ Typesense client + trending ------------------
+def get_typesense_tag_map():
+    # Try unfiltered cache first
+    ts_map = fetch_typesense_top_bots(
+        max_pages=10, use_cache=True, filter_female_nsfw=False
+    )
+
+    # If cache isn't there yet, fetch once live to populate it
+    if not ts_map:
+        safe_log("Tags: unfiltered TS cache empty — fetching live once to build tag_map")
+        ts_map = fetch_typesense_top_bots(
+            max_pages=10, use_cache=False, filter_female_nsfw=False
+        )
+
+    tag_map = {}
+    for cid, bot in (ts_map or {}).items():
+        tags = bot.get("tags") or []
+        if tags:
+            tag_map[str(cid)] = tags
+
+    safe_log(f"Tags: built tag_map for {len(tag_map)} bots")
+    return tag_map
+
+
 def multi_search_request(payload):
     """
     Wrapper for Typesense's multi_search endpoint using your public API key.
@@ -612,6 +635,52 @@ def multi_search_request(payload):
     logging.error("[Typesense] All attempts failed → using empty fallback {}.")
     return {}
 
+def fetch_typesense_tags_for_bot_ids(bot_ids):
+    """
+    Fetch tags for specific bot IDs from Typesense, regardless of rank/top480.
+    Returns: { "bot_id": ["tag1", "tag2", ...] }
+    """
+    bot_ids = [str(x) for x in bot_ids if x]
+    if not bot_ids:
+        return {}
+
+    tag_map = {}
+
+    # Chunk to keep filter_by strings reasonable
+    CHUNK = 80
+    for i in range(0, len(bot_ids), CHUNK):
+        chunk = bot_ids[i:i+CHUNK]
+
+        # Typesense expects JSON-string array in filter_by for multi-value match
+        ids_json = json.dumps(chunk)
+
+        payload = {
+            "searches": [{
+                "collection": "public_characters_alias",
+                "q": "*",
+                "query_by": "name,title,tags,character_id",
+                "filter_by": f"character_id:={ids_json}",
+                "include_fields": "character_id,tags",
+                "per_page": len(chunk),
+                "page": 1,
+                "highlight_fields": "none",
+                "enable_highlight_v1": False,
+            }]
+        }
+
+        result = multi_search_request(payload)
+        results = (result or {}).get("results", [])
+        hits = results[0].get("hits", []) if results else []
+
+        for h in hits:
+            doc = (h or {}).get("document") or {}
+            cid = str(doc.get("character_id") or "")
+            tags = doc.get("tags") or []
+            if cid:
+                tag_map[cid] = tags
+
+    safe_log(f"Tags: fetched tags for {len(tag_map)} / {len(bot_ids)} bot_ids from Typesense")
+    return tag_map
 
 def fetch_typesense_top_bots(
     max_pages=10, use_cache=True, filter_female_nsfw=True
@@ -1293,6 +1362,10 @@ def get_bots_data(
 
     latest_date = sorted(dfc["date"].unique())[-1]
     today = dfc[dfc["date"] == latest_date].copy()
+    # Build tag_map for *your* bots (not just top480)
+    your_ids = [str(x) for x in today["bot_id"].tolist()]
+    tag_map = fetch_typesense_tags_for_bot_ids(your_ids)
+
 
     # Totals history for the totals table (the big chart uses /api/totals)
     totals_df = (
@@ -1369,6 +1442,7 @@ def get_bots_data(
                 "avatar_url": avatar_url,
                 "rank": rank_val,
                 "rank_tier": rank_tier,
+                "tags": tag_map.get(str(bot_id), []),
             }
         )
 
