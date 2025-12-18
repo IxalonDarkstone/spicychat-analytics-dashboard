@@ -233,10 +233,18 @@
                         <option value="current_month" {% if created_after == 'current_month' %}selected{% endif %}>Current Month</option>
                     </select>
                 </label>
+
+                <label>
+                    Search:
+                    <input type="text" name="q" value="{{ q or '' }}" placeholder="Name, title, tag..."
+                           style="padding:6px 12px; border-radius:999px; border:1px solid var(--border-color);
+                                  background:var(--card-color); color:var(--text-color); font-size:12px; width:220px;">
+                  </label>
+                  
         
                 <!-- preserve chart timeframe -->
                 <input type="hidden" name="chart_sort_by" value="{{ chart_sort_by }}">
-        
+                <input type="hidden" name="tags" value="{{ tags }}">
                 <button type="submit" class="primary-button">Apply</button>
             </form>
         
@@ -500,6 +508,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 </script>
-       
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        const btn = document.getElementById("scrollTopBtn");
+        if (!btn) return;
+    
+        window.addEventListener("scroll", () => {
+            if (window.scrollY > 300) {
+                btn.classList.add("show");
+            } else {
+                btn.classList.remove("show");
+            }
+        });
+    
+        btn.addEventListener("click", () => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+    });
+</script>
+<button id="scrollTopBtn" title="Back to top">↑</button>
 </body>
 </html>

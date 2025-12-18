@@ -1,3 +1,36 @@
+{% if tags %}
+  <div class="filter-chip-container">
+    {% set active_tags = tags.split(',') %}
+    {% for t in active_tags %}
+      <span class="filter-chip">
+        {{ t }}
+        {% set remaining = (active_tags | reject('equalto', t) | join(',')) %}
+        <a class="filter-chip-x"
+           href="{{ url_for('index',
+                            sort_by=sort_by,
+                            sort_asc=('true' if sort_asc else 'false'),
+                            created_after=created_after,
+                            chart_sort_by=chart_sort_by,
+                            chart_sort_asc=('true' if chart_sort_asc else 'false'),
+                            timeframe=timeframe,
+                            tags=remaining,
+                            q=q) }}">×</a>
+      </span>
+    {% endfor %}
+
+    <a class="btn-link"
+       href="{{ url_for('index',
+                        sort_by=sort_by,
+                        sort_asc=('true' if sort_asc else 'false'),
+                        created_after=created_after,
+                        chart_sort_by=chart_sort_by,
+                        chart_sort_asc=('true' if chart_sort_asc else 'false'),
+                        timeframe=timeframe,
+                        tags='',
+                        q=q) }}">Reset tags</a>
+  </div>
+{% endif %}
+
 <div class="bot-grid">
     {% for bot in bots %}
     <div class="bot-card">
@@ -12,6 +45,25 @@
         </a>
         <div class="bot-name">{{ bot.name }}</div>
         <div class="bot-title">{{ bot.title }}</div>
+        {% if bot.tags %}
+        <div class="bot-tags">
+            {% set active = (tags or '').split(',') if tags else [] %}
+            {% for tag in bot.tags %}
+            {% set next_tags = (active + [tag]) | unique | join(',') %}
+            <a href="{{ url_for('index',
+                                sort_by=sort_by,
+                                sort_asc=('true' if sort_asc else 'false'),
+                                created_after=created_after,
+                                chart_sort_by=chart_sort_by,
+                                chart_sort_asc=('true' if chart_sort_asc else 'false'),
+                                timeframe=timeframe,
+                                tags=next_tags,
+                                q=q) }}">
+                <span class="tag">{{ tag }}</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
         <div class="bot-stats">Total: {{ bot.total_fmt }}</div>
         <div class="bot-stats">Delta: {{ bot.delta_fmt }}</div>
         <div class="bot-stats">Created: {{ bot.created_at }}</div>
@@ -66,6 +118,7 @@
         color: #b0b0b0;
         margin-bottom: 10px;
     }
+
     .bot-stats {
         font-size: 14px;
         color: #e0e0e0;
