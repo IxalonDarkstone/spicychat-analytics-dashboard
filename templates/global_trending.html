@@ -242,10 +242,20 @@
             </select>
         </label>
 
+        <label>
+            Search:
+            <input type="text" name="q" value="{{ q or '' }}" placeholder="Name, title, tag..."
+                   style="padding:6px 12px; border-radius:999px; border:1px solid var(--border-color);
+                          background:var(--card-color); color:var(--text-color); font-size:12px; width:240px;">
+          </label>
+          
+
         <!-- persist filters -->
         <input type="hidden" name="and" value="{{ and_raw }}">
         <input type="hidden" name="not" value="{{ not_raw }}">
         <input type="hidden" name="tab" value="{{ active_tab }}">
+        <input type="hidden" name="author" value="{{ author_filter or '' }}">
+        <input type="hidden" name="page" value="1">
 
         <button class="primary-button" type="submit">Apply</button>
     </form>
@@ -257,7 +267,7 @@
 
     <!-- ACTIVE FILTER CHIPS -->
     <!-- ACTIVE FILTER CHIPS (Creator + AND/NOT Tags) -->
-    {% if and_tags or not_tags or author_filter %}
+    {% if and_tags or not_tags or author_filter or q %}
     <div class="filter-chip-container">
 
         <!-- CREATOR CHIP -->
@@ -266,11 +276,12 @@
             Creator: {{ author_filter }}
             <a class="filter-chip-x"
             href="?sort={{ sort_field }}&order={{ order }}
-                    &and={{ and_raw|urlencode }}
-                    &not={{ not_raw|urlencode }}
-                    &tab={{ active_tab }}&page=1">
-                ×
-            </a>
+                  &and={{ and_raw|urlencode }}
+                  &not={{ not_raw|urlencode }}
+                  &tab={{ active_tab }}&page=1
+                  {% if q %}&q={{ q|urlencode }}{% endif %}">
+             ×
+         </a>
         </span>
         {% endif %}
 
@@ -281,6 +292,7 @@
             <a class="filter-chip-x"
             href="?and={{ (and_tags | reject('equalto', t) | join(',')) | urlencode }}
                     &not={{ not_raw | urlencode }}
+                    &q={{ q|urlencode }}
                     &author={{ author_filter|urlencode }}
                     &sort={{ sort_field }}&order={{ order }}
                     &tab={{ active_tab }}&page=1">
@@ -295,7 +307,8 @@
             NOT {{ t }}
             <a class="filter-chip-x"
             href="?not={{ (not_tags | reject('equalto', t) | join(',')) | urlencode }}
-                    &and={{ and_raw | urlencode }}
+                    &and={{ and_raw | urlencode }}                    
+                    &q={{ q|urlencode }}
                     &author={{ author_filter|urlencode }}
                     &sort={{ sort_field }}&order={{ order }}
                     &tab={{ active_tab }}&page=1">
@@ -310,7 +323,7 @@
 
     <!-- BOT COUNT SUMMARY -->
     <div style="margin: 10px 0 20px 0; font-size:16px; color:#ccc;">
-        {% if and_tags or not_tags or author_filter %}
+        {% if and_tags or not_tags or author_filter or q %}
             Showing <strong>{{ filtered_total }}</strong> bots
         {% else %}
             Showing all <strong>{{ ts_total }}</strong> bots
@@ -351,6 +364,7 @@
                         {% for tag in b.tags %}
                         <a href="?and={{ (and_raw + ',' + tag)|urlencode if and_raw else tag|urlencode }}
                                  &not={{ not_raw|urlencode }}
+                                 &q={{ q|urlencode }}
                                  &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1">
                             <span class="tag">{{ tag }}</span>
                         </a>
@@ -373,7 +387,8 @@
                                      page=1,
                                      sort=sort_field, order=order,
                                      and=and_raw, not=not_raw,
-                                     tab=active_tab) }}">
+                                     tab=active_tab,
+                                     q=q) }}">
                     ⏮ First
                 </a>
                 {% else %}
@@ -386,7 +401,8 @@
                                      page=page-1,
                                      sort=sort_field, order=order,
                                      and=and_raw, not=not_raw,
-                                     tab=active_tab) }}">
+                                     tab=active_tab,
+                                     q=q) }}">
                     ◀ Prev
                 </a>
                 {% else %}
@@ -404,7 +420,8 @@
                                      page=page+1,
                                      sort=sort_field, order=order,
                                      and=and_raw, not=not_raw,
-                                     tab=active_tab) }}">
+                                     tab=active_tab,
+                                     q=q) }}">
                     Next ▶
                 </a>
                 {% else %}
@@ -417,7 +434,8 @@
                                      page=total_pages,
                                      sort=sort_field, order=order,
                                      and=and_raw, not=not_raw,
-                                     tab=active_tab) }}">
+                                     tab=active_tab,
+                                     q=q) }}">
                     Last ⏭
                 </a>
                 {% else %}
@@ -453,18 +471,26 @@
                     <table class="sidebar-table">
                         <thead><tr><th>Creator</th><th>#</th></tr></thead>
                         <tbody>
-                        {% for c in creators %}
-                        <tr>
-                            <td>
-                                <a href="?author={{ c.creator|urlencode }}&sort={{ sort_field }}&order={{ order }}&and={{ and_raw }}&not={{ not_raw }}&tab=creators&page=1">
-                                    {{ c.creator }}
-                                </a>
-                                
-                                </a>
-                            </td>
-                            <td>{{ c.count }}</td>
-                        </tr>
-                        {% endfor %}
+                            {% for c in creators %}
+                            <tr>
+                                <td>
+                                    <a href="{{ url_for(
+                                        'global_trending',
+                                        author=c.creator,
+                                        sort=sort_field,
+                                        order=order,
+                                        and=and_raw,
+                                        not=not_raw,
+                                        tab='creators',
+                                        page=1,
+                                        q=q
+                                    ) }}">
+                                        {{ c.creator }}
+                                    </a>
+                                </td>
+                                <td>{{ c.count }}</td>
+                            </tr>
+                            {% endfor %}
                         </tbody>
                     </table>
                 </div>
@@ -500,6 +526,7 @@
                                 style="color:#74ff74; font-weight:bold; margin-right:12px;"
                                 href="?and={{ (and_raw + ',' + t.tag)|urlencode if and_raw else t.tag|urlencode }}
                                             &not={{ not_raw|urlencode }}
+                                            &q={{ q|urlencode }}
                                             &sort={{ sort_field }}&order={{ order }}
                                             &tab=tags&page=1">
                                     ✓
@@ -510,6 +537,7 @@
                                 style="color:#ff6b6b; font-weight:bold;"
                                 href="?not={{ (not_raw + ',' + t.tag)|urlencode if not_raw else t.tag|urlencode }}
                                             &and={{ and_raw|urlencode }}
+                                            &q={{ q|urlencode }}
                                             &sort={{ sort_field }}&order={{ order }}
                                             &tab=tags&page=1">
                                     ✕

@@ -233,6 +233,14 @@
                         <option value="current_month" {% if created_after == 'current_month' %}selected{% endif %}>Current Month</option>
                     </select>
                 </label>
+                
+                <label>
+                    Search:
+                    <input type="text" name="q" value="{{ q or '' }}" placeholder="Name, title, tag..."
+                           style="padding:6px 12px; border-radius:999px; border:1px solid var(--border-color);
+                                  background:var(--card-color); color:var(--text-color); font-size:12px; width:220px;">
+                  </label>
+                  
         
                 <!-- preserve chart timeframe -->
                 <input type="hidden" name="chart_sort_by" value="{{ chart_sort_by }}">

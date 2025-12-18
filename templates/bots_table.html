@@ -13,7 +13,8 @@
                             chart_sort_by=chart_sort_by,
                             chart_sort_asc=('true' if chart_sort_asc else 'false'),
                             timeframe=timeframe,
-                            tags=remaining) }}">×</a>
+                            tags=remaining,
+                            q=q) }}">×</a>
       </span>
     {% endfor %}
 
@@ -25,7 +26,8 @@
                         chart_sort_by=chart_sort_by,
                         chart_sort_asc=('true' if chart_sort_asc else 'false'),
                         timeframe=timeframe,
-                        tags='') }}">Reset tags</a>
+                        tags='',
+                        q=q) }}">Reset tags</a>
   </div>
 {% endif %}
 
@@ -55,7 +57,8 @@
                                 chart_sort_by=chart_sort_by,
                                 chart_sort_asc=('true' if chart_sort_asc else 'false'),
                                 timeframe=timeframe,
-                                tags=next_tags) }}">
+                                tags=next_tags,
+                                q=q) }}">
                 <span class="tag">{{ tag }}</span>
             </a>
             {% endfor %}

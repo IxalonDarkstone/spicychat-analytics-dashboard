@@ -1347,7 +1347,7 @@ def compute_deltas(df_raw: pd.DataFrame, timeframe="All") -> pd.DataFrame:
     return df
 
 # ------------------ Dashboard bots data ------------------
-def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_after="All", tags=""):
+def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_after="All", tags="", q=""):
 
     """
     Load snapshot history from DB, compute deltas for the given timeframe,
@@ -1475,6 +1475,18 @@ def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_afte
             return all(t in bot_tags for t in required_tags)
 
         bots = [b for b in bots if has_all_tags(b)]
+    
+    # --- Search filter (Name/Title/Tags) ---
+    q_norm = (q or "").strip().lower()
+    if q_norm:
+        def matches_search(bot):
+            name = (bot.get("name") or "").lower()
+            title = (bot.get("title") or "").lower()
+            tags_list = bot.get("tags") or []
+            tags_blob = " ".join([str(t).lower() for t in tags_list])
+            return (q_norm in name) or (q_norm in title) or (q_norm in tags_blob)
+
+        bots = [b for b in bots if matches_search(b)]
         
     # Sorting
     reverse = not sort_asc

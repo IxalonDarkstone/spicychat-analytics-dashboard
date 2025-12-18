@@ -135,7 +135,9 @@ def register_trending_routes(app):
 
     @app.route("/global-trending")
     def global_trending():
-
+        
+            q = request.args.get("q", "").strip().lower()
+            
             # --------------------------------------------
             # Persistent tab (creators or tags)
             # --------------------------------------------
@@ -204,9 +206,22 @@ def register_trending_routes(app):
             # --------------------------------------------
             # Author filter (as-is)
             # --------------------------------------------
-            author_filter = request.args.get("author")
+            author_filter = (request.args.get("author") or "").strip()
             if author_filter:
-                ts_list = [b for b in ts_list if b.get("creator_username") == author_filter]
+                af = author_filter.lower()
+                ts_list = [b for b in ts_list if (b.get("creator_username") or "").strip().lower() == af]
+
+                
+            # --- Search filter (Name/Title/Tags) ---
+            if q:
+                def match(bot):
+                    name = (bot.get("name") or "").lower()
+                    title = (bot.get("title") or "").lower()
+                    tags = bot.get("tags") or []
+                    tags_blob = " ".join([str(t).lower() for t in tags])
+                    return (q in name) or (q in title) or (q in tags_blob)
+
+                ts_list = [b for b in ts_list if match(b)]
 
             # --------------------------------------------
             # Pagination
@@ -234,25 +249,23 @@ def register_trending_routes(app):
             # Creator leaderboard (filtered trending only)
             # --------------------------------------------
             creator_counts = {}
-            for bot in ts_map_filtered.values():
+            for bot in ts_list:
                 creator = bot.get("creator_username", "")
                 if creator:
                     creator_counts[creator] = creator_counts.get(creator, 0) + 1
 
             creators_sorted = sorted(
-                [{"creator": c, "count": n} for c, n in creator_counts.items()],
-                key=lambda x: x["count"], reverse=True
+                [{"creator": k, "count": v} for k, v in creator_counts.items()],
+                key=lambda x: x["count"],
+                reverse=True
             )
-
             # --------------------------------------------
             # Tag leaderboard (unfiltered trending)
             # --------------------------------------------
-            # Tag leaderboard (filtered trending — matches grid)
             tag_counts = {}
-            for bot in ts_map_filtered.values():
+            for bot in ts_list:
                 for t in bot.get("tags", []) or []:
                     tag_counts[t] = tag_counts.get(t, 0) + 1
-
 
             tags_sorted = sorted(
                 [{"tag": t, "count": c} for t, c in tag_counts.items()],
@@ -274,6 +287,7 @@ def register_trending_routes(app):
                 and_tags=and_tags,
                 not_tags=not_tags,
                 active_tab=active_tab,
+                q=q,
                 ts_total=len(ts_map_filtered),
-                filtered_total=len(ts_list)
+                filtered_total=len(ts_list),
             )
