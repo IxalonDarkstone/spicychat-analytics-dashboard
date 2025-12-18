@@ -493,3 +493,36 @@ a {
     font-weight: 600;
     white-space: nowrap;
 }
+/* ============================================================
+   FLOATING SCROLL-TO-TOP BUTTON
+   ============================================================ */
+
+   #scrollTopBtn {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+
+    background: var(--accent-color);
+    color: #000;
+    font-size: 22px;
+    font-weight: bold;
+
+    cursor: pointer;
+    z-index: 9999;
+
+    display: none;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+#scrollTopBtn:hover {
+    transform: scale(1.1);
+}
+
+#scrollTopBtn.show {
+    display: block;
+}
