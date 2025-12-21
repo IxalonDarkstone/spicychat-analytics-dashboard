@@ -113,15 +113,23 @@
         </div>
     </section>
 
-    <!-- Page position chart -->
-    <section class="chart-single-row">
+    <!-- Page position + Rating charts -->
+    <section class="charts-row">
         <div class="chart-card">
             <div class="chart-header">
                 <h2>Page Position (1–10, &gt;10)</h2>
             </div>
             <canvas id="botPageChart"></canvas>
         </div>
-    </section>
+
+    <div class="chart-card">
+        <div class="chart-header">
+            <h2>Rating (%)</h2>
+        </div>
+        <canvas id="botRatingChart"></canvas>
+    </div>
+</section>
+
 
     <!-- History table -->
     <section class="bot-history-section">
@@ -141,7 +149,7 @@
                         <th>Total Messages</th>
                         <th>Daily Change</th>
                         <th>Rank</th>
-                        <th>Created At</th>
+                        <th>Rating</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -153,19 +161,16 @@
                             {{ row.daily_fmt }}
                         </td>
                         <td>
-                            {% if row.rank %}
-                                {{ row.rank }}
+                            {% if row.rank %}{{ row.rank }}{% else %}-{% endif %}
+                          </td>
+                          <td>
+                            {% if row.rating_pct is not none %}
+                              {{ "%.0f"|format(row.rating_pct) }}%
                             {% else %}
-                                -
+                              —
                             {% endif %}
-                        </td>
-                        <td>
-                            {% if row.created_at %}
-                                {{ row.created_at }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        </td>
+                          </td>
+                          
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -397,7 +402,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const totals = data.points.map(p => p.total);
     const dailies = data.points.map(p => p.daily);
     const pages = data.points.map(p => p.page);  // 1–10, 11 for >10
-
+    const ratings = data.points.map(p => p.rating_pct);
+    const ratingCtx = document.getElementById("botRatingChart").getContext("2d");
+    
     if (labels.length === 0) {
         return;
     }
@@ -455,6 +462,49 @@ document.addEventListener("DOMContentLoaded", async () => {
                             if (value === 11) return ">10";
                             return "Page " + value;
                         }
+                    }
+                }
+            }
+        }
+    });
+    // Rating (%) chart
+    new Chart(ratingCtx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: "Rating (%)",
+                data: ratings,
+                borderWidth: 2,
+                tension: 0.4,
+                pointRadius: 2,
+                hitRadius: 8,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: ctx => {
+                            const v = ctx.parsed.y;
+                            if (v === null || v === undefined) return "Rating: —";
+                            return "Rating: " + Math.round(v) + "%";
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    min: 0,
+                    max: 100,
+                    ticks: {
+                        callback: value => value + "%"
                     }
                 }
             }
