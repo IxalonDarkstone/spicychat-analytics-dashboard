@@ -136,6 +136,25 @@ def fmt_delta_commas(n):
         return f"{sign}{abs(n):,}"
     except Exception:
         return ""
+def rating_to_pct(r):
+    """Convert rating_score (0-1 or 0-5) into a percent (0-100)."""
+    try:
+        r = float(r)
+    except Exception:
+        return None
+
+    if r < 0:
+        return None
+
+    # heuristic: <=1 is already ratio; otherwise assume 0-5 stars
+    if r <= 1.0:
+        pct = r * 100.0
+    else:
+        pct = (r / 5.0) * 100.0
+
+    # clamp
+    pct = max(0.0, min(100.0, pct))
+    return pct
 
 # ------------------ Generic data helpers ------------------
 def coerce_int(x):
@@ -549,10 +568,81 @@ def init_db():
             )
             """
         )
+        
+        # bot_ratings table
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bot_ratings (
+                bot_id TEXT PRIMARY KEY,
+                rating_score REAL,
+                updated_at TEXT
+            )
+            """
+        )
+        
+        # bot_rating_history table (rating snapshots by date)
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bot_rating_history (
+                date TEXT NOT NULL,
+                bot_id TEXT NOT NULL,
+                rating_score REAL,
+                PRIMARY KEY (date, bot_id)
+            )
+            """
+        )
+
+        
 
         conn.commit()
 
     safe_log(f"Database initialized/verified at {DATABASE}")
+
+def load_cached_rating_map(bot_ids=None):
+    """Return {bot_id(str): rating_score(float|None)} from SQLite cache."""
+    init_db()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+
+    if bot_ids:
+        ids = [str(x) for x in bot_ids]
+        placeholders = ",".join(["?"] * len(ids))
+        cur.execute(
+            f"SELECT bot_id, rating_score FROM bot_ratings WHERE bot_id IN ({placeholders})",
+            ids
+        )
+    else:
+        cur.execute("SELECT bot_id, rating_score FROM bot_ratings")
+
+    rows = cur.fetchall()
+    conn.close()
+
+    out = {}
+    for bot_id, rating_score in rows:
+        try:
+            out[str(bot_id)] = float(rating_score) if rating_score is not None else None
+        except Exception:
+            out[str(bot_id)] = None
+    return out
+
+
+def save_cached_rating_map(rating_map):
+    """Upsert {bot_id: rating_score} into SQLite cache."""
+    if not rating_map:
+        return
+
+    init_db()
+    now = datetime.now(tz=CDT).isoformat()
+    rows = [(str(k), (float(v) if v is not None else None), now) for k, v in rating_map.items()]
+
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+    cur.executemany(
+        "INSERT OR REPLACE INTO bot_ratings (bot_id, rating_score, updated_at) VALUES (?, ?, ?)",
+        rows
+    )
+    conn.commit()
+    conn.close()
 
 # ------------------ Typesense client + trending ------------------
 def get_typesense_tag_map():
@@ -645,6 +735,53 @@ def multi_search_request(payload):
 
     logging.error("[Typesense] All attempts failed → using empty fallback {}.")
     return {}
+
+def fetch_typesense_ratings_for_bot_ids(bot_ids):
+    """
+    Fetch rating_score for specific bot IDs from Typesense.
+    Returns: { "bot_id": float|None }
+    """
+    bot_ids = [str(x) for x in bot_ids if x]
+    if not bot_ids:
+        return {}
+
+    rating_map = {}
+
+    CHUNK = 80
+    for i in range(0, len(bot_ids), CHUNK):
+        chunk = bot_ids[i:i+CHUNK]
+        ids_json = json.dumps(chunk)
+
+        payload = {
+            "searches": [{
+                "collection": "public_characters_alias",
+                "q": "*",
+                "query_by": "name,title,tags,character_id",
+                "filter_by": f"character_id:={ids_json}",
+                "include_fields": "character_id,rating_score",
+                "per_page": len(chunk),
+                "page": 1,
+                "highlight_fields": "none",
+                "enable_highlight_v1": False,
+            }]
+        }
+
+        result = multi_search_request(payload)
+        results = (result or {}).get("results", [])
+        hits = results[0].get("hits", []) if results else []
+
+        for h in hits:
+            doc = (h or {}).get("document") or {}
+            cid = str(doc.get("character_id") or "")
+            rs = doc.get("rating_score", None)
+            if cid:
+                try:
+                    rating_map[cid] = float(rs) if rs is not None else None
+                except Exception:
+                    rating_map[cid] = None
+
+    safe_log(f"Ratings: fetched ratings for {len(rating_map)} / {len(bot_ids)} bot_ids from Typesense")
+    return rating_map
 
 def fetch_typesense_tags_for_bot_ids(bot_ids):
     """
@@ -821,6 +958,9 @@ def fetch_typesense_top_bots(
                 "link": f"https://spicychat.ai/chat/{cid}",
                 "page": page,
                 "rank": rank,
+                "rating_score": doc.get("rating_score", None),
+                "rating_pct": rating_to_pct(doc.get("rating_score", None)),
+
             }
 
             ALL_RESULTS.append(bot)
@@ -894,6 +1034,35 @@ def save_rank_history_for_date(stamp, ts_map):
     conn.close()
 
     safe_log(f"Saved {len(rows)} rank history rows for {stamp}")
+
+def save_rating_history_for_date(stamp, rating_map):
+    """
+    Save rating_score for your bots on a given date.
+    rating_map: { bot_id(str): rating_score(float|None) }
+    """
+    if not rating_map:
+        return
+
+    init_db()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+
+    rows = []
+    for bot_id, score in rating_map.items():
+        try:
+            score_val = float(score) if score is not None else None
+        except Exception:
+            score_val = None
+        rows.append((stamp, str(bot_id), score_val))
+
+    cur.executemany(
+        "INSERT OR REPLACE INTO bot_rating_history (date, bot_id, rating_score) VALUES (?, ?, ?)",
+        rows
+    )
+    conn.commit()
+    conn.close()
+
+    safe_log(f"Saved {len(rows)} rating history rows for {stamp}")
 
 # ------------------ API capture ------------------
 def capture_payloads(bearer_token, guest_userid, max_retries=3, delay=5):
@@ -1191,8 +1360,20 @@ def take_snapshot(args=None, verbose=True):
     LAST_SNAPSHOT_DATE = snapshot_time.isoformat()
     safe_log(f"Snapshot complete at {LAST_SNAPSHOT_DATE}")
 
-    return DATABASE
 
+    # ----------------------------
+    # Cache ratings for "My Chatbots"
+    # ----------------------------
+    try:
+        your_ids = [str(r["bot_id"]) for r in rows_clean]
+        rating_map = fetch_typesense_ratings_for_bot_ids(your_ids)
+        save_cached_rating_map(rating_map)
+        save_rating_history_for_date(stamp, rating_map)
+        safe_log(f"Cached ratings for {len(rating_map)} bots (My Chatbots)")
+    except Exception as e:
+        safe_log(f"Rating caching failed: {e}")
+
+    return DATABASE
 # ------------------ Load + compute deltas ------------------
 def load_history_df() -> pd.DataFrame:
     """
@@ -1386,6 +1567,8 @@ def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_afte
     # Build tag_map for *your* bots (not just top480)
     your_ids = [str(x) for x in today["bot_id"].tolist()]
     tag_map = load_cached_tag_map(today["bot_id"].tolist())
+    rating_map = load_cached_rating_map(today["bot_id"].tolist())
+
 
 
     # Totals history for the totals table (the big chart uses /api/totals)
@@ -1464,6 +1647,9 @@ def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_afte
                 "rank": rank_val,
                 "rank_tier": rank_tier,
                 "tags": tag_map.get(str(bot_id), []),
+                "rating": rating_map.get(str(bot_id), None),
+                "rating_pct": rating_to_pct(rating_map.get(str(bot_id), None)),
+
             }
         )
         

@@ -13,6 +13,19 @@ from core import (
     safe_log,
 )
 
+def rating_to_pct(r):
+    """Convert rating_score (0-1 or 0-5) into 0-100%. Heuristic-based."""
+    try:
+        r = float(r)
+    except Exception:
+        return None
+
+    if r < 0:
+        return None
+
+    # <=1 treat as ratio; otherwise treat as 0-5 stars
+    pct = (r * 100.0) if r <= 1.0 else ((r / 5.0) * 100.0)
+    return max(0.0, min(100.0, pct))
 
 def register_bot_routes(app):
     @app.route("/api/bot/<bot_id>/history")
@@ -29,6 +42,14 @@ def register_bot_routes(app):
             (bot_id,),
         )
         rank_rows = cur.fetchall()
+        
+        cur.execute(
+            "SELECT date, rating_score FROM bot_rating_history WHERE bot_id = ?",
+            (bot_id,),
+        )
+        rating_rows = cur.fetchall()
+        rating_by_date = {date_str: score for (date_str, score) in rating_rows}
+
         conn.close()
 
         rank_by_date = {date_str: (rank or 0) for (date_str, rank) in rank_rows}
@@ -42,6 +63,7 @@ def register_bot_routes(app):
                 page = (r - 1) // 48 + 1
             else:
                 page = 11
+            rating_pct = rating_to_pct(rating_by_date.get(date_str, None))
 
             points.append(
                 {
@@ -50,6 +72,7 @@ def register_bot_routes(app):
                     "daily": int(row.get("daily_messages", 0)),
                     "rank": r if r else None,
                     "page": page,
+                    "rating_pct": rating_pct,
                 }
             )
 
@@ -100,31 +123,30 @@ def register_bot_routes(app):
 
         conn = sqlite3.connect(DATABASE)
         cur = conn.cursor()
-        cur.execute(
-            "SELECT date, rank FROM bot_rank_history WHERE bot_id = ?",
-            (bot_id,),
-        )
+
+        cur.execute("SELECT date, rank FROM bot_rank_history WHERE bot_id = ?", (bot_id,))
         rank_rows = cur.fetchall()
+
+        cur.execute("SELECT date, rating_score FROM bot_rating_history WHERE bot_id = ?", (bot_id,))
+        rating_rows = cur.fetchall()
+
         conn.close()
+
         rank_by_date = {date_str: (rank or 0) for (date_str, rank) in rank_rows}
+        rating_by_date = {date_str: score for (date_str, score) in rating_rows}
 
         history_rows = bot_rows.sort_values("date", ascending=False)
 
         history = []
         for _, row in history_rows.iterrows():
-            created_row = ""
-            if pd.notnull(row.get("created_at")):
-                try:
-                    created_row = row["created_at"].strftime("%Y-%m-%d %H:%M:%S %Z")
-                except Exception:
-                    created_row = str(row["created_at"])
-
             date_str = str(row["date"])
             r = rank_by_date.get(date_str, 0)
             if r and 1 <= r <= 480:
                 page = (r - 1) // 48 + 1
             else:
                 page = None
+                
+            rating_pct = rating_to_pct(rating_by_date.get(date_str, None))
 
             history.append(
                 {
@@ -133,9 +155,9 @@ def register_bot_routes(app):
                     "total_fmt": fmt_commas(row["num_messages"]),
                     "daily": int(row.get("daily_messages", 0)),
                     "daily_fmt": fmt_delta_commas(int(row.get("daily_messages", 0))),
-                    "created_at": created_row,
                     "rank": r or None,
                     "page": page,
+                    "rating_pct": rating_pct,
                 }
             )
 

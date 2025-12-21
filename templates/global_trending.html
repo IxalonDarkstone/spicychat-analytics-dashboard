@@ -352,6 +352,12 @@
 
                     <div class="bot-stats">Total: {{ b.num_messages }}</div>
 
+                    {% if b.rating_pct is defined and b.rating_pct is not none %}
+                    <div class="bot-stats">Rating: {{ "%.0f"|format(b.rating_pct) }}%</div>
+                    {% endif %}
+
+                  
+                  
                     <div class="bot-stats">
                         Author:
                         <a href="https://spicychat.ai/creator/{{ b.creator_username }}" target="_blank">

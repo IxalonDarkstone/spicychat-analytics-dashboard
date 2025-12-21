@@ -66,6 +66,10 @@
         {% endif %}
         <div class="bot-stats">Total: {{ bot.total_fmt }}</div>
         <div class="bot-stats">Delta: {{ bot.delta_fmt }}</div>
+        {% if bot.rating_pct is not none %}
+        <div class="bot-stats">Rating: {{ "%.0f"|format(bot.rating_pct) }}%</div>
+        {% endif %}
+      
         <div class="bot-stats">Created: {{ bot.created_at }}</div>
         <div class="bot-actions">
             <a href="{{ url_for('bot_detail', bot_id=bot.bot_id) }}"
