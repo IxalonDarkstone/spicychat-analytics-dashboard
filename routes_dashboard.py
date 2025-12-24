@@ -14,6 +14,7 @@ from core import (
     LAST_SNAPSHOT_DATE,
     safe_log,
     get_last_snapshot_time,
+    ensure_author_tables,
     DATABASE,
 )
 
@@ -132,6 +133,51 @@ def register_dashboard_routes(app):
             bots, totals_list, total_messages, total_bots, latest_date_from_bots = [], [], 0, 0, None
 
         safe_log(f"Rendering index for {latest} with {len(bots)} bots")
+        
+        # ----------------------------
+        # New bots from tracked authors (notification banner)
+        # ----------------------------
+        ensure_author_tables()
+
+        author_new = []
+        author_new_max = ""
+
+        try:
+            cutoff = (datetime.utcnow() - timedelta(days=2)).isoformat()
+
+            conn = sqlite3.connect(DATABASE)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    m.author,
+                    s.bot_id,
+                    s.bot_name,
+                    s.bot_title,
+                    m.first_seen_at
+                FROM author_bot_map m
+                JOIN bot_static s ON s.bot_id = m.bot_id
+                WHERE m.first_seen_at IS NOT NULL
+                  AND m.first_seen_at >= ?
+                ORDER BY m.first_seen_at DESC
+                LIMIT 8
+            """, (cutoff,))
+            rows = cur.fetchall()
+            conn.close()
+
+            for author, bot_id, bot_name, bot_title, first_seen_at in rows:
+                author_new.append({
+                    "author": author,
+                    "bot_id": str(bot_id),
+                    "name": bot_name or "",
+                    "title": bot_title or "",
+                    "first_seen_at": first_seen_at or "",
+                    "link": f"https://spicychat.ai/chat/{bot_id}",
+                })
+
+            if rows:
+                author_new_max = rows[0][4] or ""
+        except Exception as e:
+            safe_log(f"Author new-bots banner query failed: {e}")
 
         # ================================
         #  FIX 2 — PASS AUTH + LAST SNAPSHOT
@@ -209,28 +255,33 @@ def register_dashboard_routes(app):
             .sort_values("date")
         )
 
-        # --- Load top480 and top240 history ---
+# --- Load top480 and top240 counts for *your bots* from bot_rank_history ---
         conn = sqlite3.connect(DATABASE)
         cur = conn.cursor()
 
-        # top 10 pages (1–10 → top 480)
         try:
-            cur.execute("SELECT date, count FROM top480_history")
-            top480_rows = cur.fetchall()
+            cur.execute("""
+                SELECT
+                    r.date,
+                    SUM(CASE WHEN r.rank IS NOT NULL AND r.rank <= 480 THEN 1 ELSE 0 END) AS top480,
+                    SUM(CASE WHEN r.rank IS NOT NULL AND r.rank <= 240 THEN 1 ELSE 0 END) AS top240
+                FROM bot_rank_history r
+                JOIN bots b
+                ON b.date = r.date
+                AND b.bot_id = r.bot_id
+                GROUP BY r.date
+                ORDER BY r.date
+            """)
+            rank_counts = cur.fetchall()
         except sqlite3.OperationalError:
-            top480_rows = []
-
-        # top 5 pages (1–5 → top 240)
-        try:
-            cur.execute("SELECT date, count FROM top240_history")
-            top240_rows = cur.fetchall()
-        except sqlite3.OperationalError:
-            top240_rows = []
+            rank_counts = []
 
         conn.close()
 
-        top480_by_date = {d: c for (d, c) in top480_rows}
-        top240_by_date = {d: c for (d, c) in top240_rows}
+        top480_by_date = {str(d): int(t480 or 0) for (d, t480, t240) in rank_counts}
+        top240_by_date = {str(d): int(t240 or 0) for (d, t480, t240) in rank_counts}
+
+
 
         # --- Build timeline points ---
         points = []
