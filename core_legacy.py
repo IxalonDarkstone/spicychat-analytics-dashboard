@@ -511,7 +511,40 @@ def init_db():
                 PRIMARY KEY (date, bot_id)
             )
             """
+            
         )
+        # tracked_authors table
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tracked_authors (
+                author TEXT PRIMARY KEY,
+                added_at TEXT
+            )
+            """
+        )
+
+        # author_bots table (bots for tracked authors, by snapshot date)
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS author_bots (
+                date TEXT NOT NULL,
+                author TEXT NOT NULL,
+                bot_id TEXT NOT NULL,
+                bot_name TEXT,
+                bot_title TEXT,
+                tags_json TEXT,
+                avatar_url TEXT,
+                PRIMARY KEY (date, author, bot_id)
+            )
+            """
+        )
+
+        # Back-compat: ensure avatar_url exists for author_bots
+        c.execute("PRAGMA table_info(author_bots)")
+        cols = [r[1] for r in c.fetchall()]
+        if "avatar_url" not in cols:
+            c.execute("ALTER TABLE author_bots ADD COLUMN avatar_url TEXT")
+            safe_log("Added missing avatar_url column to existing author_bots table")
 
         #bots_tags table
         c.execute(
@@ -735,6 +768,207 @@ def multi_search_request(payload):
 
     logging.error("[Typesense] All attempts failed → using empty fallback {}.")
     return {}
+
+def get_tracked_authors():
+    init_db()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+    cur.execute("SELECT author FROM tracked_authors ORDER BY author COLLATE NOCASE")
+    rows = cur.fetchall()
+    conn.close()
+    return [r[0] for r in rows if r and r[0]]
+
+def add_tracked_author(author: str):
+    author = (author or "").strip()
+    if not author:
+        return False
+    init_db()
+    now = datetime.now(tz=CDT).isoformat()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR REPLACE INTO tracked_authors (author, added_at) VALUES (?, ?)",
+        (author, now),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+def fetch_typesense_bots_by_author(author: str, max_pages: int = 60, per_page: int = 100):
+    """
+    Pull ALL bots for a creator_username from Typesense.
+    Returns list of {bot_id, name, title, tags}
+    """
+    author = (author or "").strip()
+    if not author:
+        return []
+
+    all_bots = []
+    page = 1
+
+    # Keep this aligned with your “STANDARD spicychat characters” logic
+    base_filter = (
+        "application_ids:spicychat && tags:![Step-Family] && "
+        "creator_user_id:!['kp:018d4672679e4c0d920ad8349061270c',"
+        "'kp:2f4c9fcbdb0641f3a4b960bfeaf1ea0b'] "
+        "&& type:STANDARD"
+    )
+
+    # NOTE: exact-match creator_username
+    filter_clause = f'{base_filter} && creator_username:="{author}"'
+
+    while page <= max_pages:
+        payload = {
+            "searches": [{
+                "collection": "public_characters_alias",
+                "q": "*",
+                "query_by": "name,title,tags,creator_username,character_id,type",
+                "filter_by": filter_clause,
+                "include_fields": "character_id,name,title,tags,creator_username,avatar_url",
+                "per_page": per_page,
+                "page": page,
+                "highlight_fields": "none",
+                "enable_highlight_v1": False,
+            }]
+        }
+
+        result = multi_search_request(payload)
+        results = (result or {}).get("results", [])
+        hits = results[0].get("hits", []) if results else []
+
+        if not hits:
+            break
+
+        for h in hits:
+            doc = (h or {}).get("document") or {}
+            cid = str(doc.get("character_id") or "").strip()
+            if not cid:
+                continue
+            all_bots.append({
+                "bot_id": cid,
+                "name": (doc.get("name") or "").strip(),
+                "title": (doc.get("title") or "") or "",
+                "tags": doc.get("tags") or [],
+                "avatar_url": doc.get("avatar_url") or "",
+                "link": f"https://spicychat.ai/chat/{cid}",
+            })
+
+        if len(hits) < per_page:
+            break
+
+        page += 1
+
+    return all_bots
+
+def save_author_bots_for_date(stamp: str, author: str, bots: list):
+    """Upsert author bots for this snapshot date."""
+    init_db()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+
+    rows = []
+    for b in bots:
+        rows.append((
+            stamp,
+            author,
+            str(b.get("bot_id") or ""),
+            b.get("name") or "",
+            b.get("title") or "",
+            json.dumps(b.get("tags") or []),
+            normalize_avatar_url(b.get("avatar_url") or ""),
+        ))
+
+
+    # Replace this author's bots for the day (clean write)
+    cur.execute("DELETE FROM author_bots WHERE date = ? AND author = ?", (stamp, author))
+    cur.executemany(
+        """
+        INSERT OR REPLACE INTO author_bots
+        (date, author, bot_id, bot_name, bot_title, tags_json, avatar_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows
+    )
+    conn.commit()
+    conn.close()
+
+def refresh_tracked_authors_snapshot(stamp: str):
+    """During snapshot: fetch Typesense bots for every tracked author and store them."""
+    authors = get_tracked_authors()
+    if not authors:
+        return
+
+    safe_log(f"Author Tracker: refreshing {len(authors)} tracked authors for {stamp}")
+
+    for author in authors:
+        try:
+            bots = fetch_typesense_bots_by_author(author)
+            save_author_bots_for_date(stamp, author, bots)
+            safe_log(f"Author Tracker: saved {len(bots)} bots for {author} on {stamp}")
+        except Exception as e:
+            safe_log(f"Author Tracker: failed for {author}: {e}")
+
+def load_author_bots_for_date(stamp: str, author: str):
+    init_db()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT bot_id, bot_name, bot_title, tags_json, avatar_url
+        FROM author_bots
+        WHERE date = ? AND author = ?
+        ORDER BY bot_name COLLATE NOCASE
+        """,
+        (stamp, author),
+    )
+
+    rows = cur.fetchall()
+    conn.close()
+
+    out = []
+    for bot_id, bot_name, bot_title, tags_json, avatar_url in rows:
+        try:
+            tags = json.loads(tags_json) if tags_json else []
+        except Exception:
+            tags = []
+
+        out.append({
+            "bot_id": str(bot_id),
+            "name": bot_name or "",
+            "title": bot_title or "",
+            "tags": tags,
+            "avatar_url": normalize_avatar_url(avatar_url),
+            "link": f"https://spicychat.ai/chat/{bot_id}",
+        })
+
+    return out
+
+
+def remove_tracked_author(author: str):
+    author = (author or "").strip()
+    if not author:
+        return False
+
+    init_db()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM tracked_authors WHERE author = ?", (author,))
+    # Also clean cached author bots (optional but recommended)
+    cur.execute("DELETE FROM author_bots WHERE author = ?", (author,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def refresh_single_author_snapshot(stamp: str, author: str):
+    """Fetch from Typesense now and save into author_bots for this stamp."""
+    author = (author or "").strip()
+    if not stamp or not author:
+        return 0
+
+    bots = fetch_typesense_bots_by_author(author)
+    save_author_bots_for_date(stamp, author, bots)
+    return len(bots)
 
 def fetch_typesense_ratings_for_bot_ids(bot_ids):
     """
@@ -1372,6 +1606,15 @@ def take_snapshot(args=None, verbose=True):
         safe_log(f"Cached ratings for {len(rating_map)} bots (My Chatbots)")
     except Exception as e:
         safe_log(f"Rating caching failed: {e}")
+        
+    # ----------------------------
+    # Track Authors (snapshot cache)
+    # ----------------------------
+    try:
+        refresh_tracked_authors_snapshot(stamp)
+    except Exception as e:
+        safe_log(f"Author Tracker snapshot failed: {e}")
+
 
     return DATABASE
 # ------------------ Load + compute deltas ------------------
@@ -1528,6 +1771,35 @@ def compute_deltas(df_raw: pd.DataFrame, timeframe="All") -> pd.DataFrame:
     return df
 
 # ------------------ Dashboard bots data ------------------
+def normalize_avatar_url(url: str) -> str:
+    """
+    Typesense often returns avatar_url like '/avatars/<file>.png'.
+    Convert relative paths to absolute CDN URLs so the browser doesn't request localhost.
+    """
+    url = (url or "").strip()
+    if not url:
+        return ""
+
+    # already absolute
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+
+    # handle '/avatars/<file>' or 'avatars/<file>'
+    if url.startswith("/avatars/"):
+        filename = url[len("/avatars/"):]
+        return f"{AVATAR_BASE_URL}/{filename}"
+
+    if url.startswith("avatars/"):
+        filename = url[len("avatars/"):]
+        return f"{AVATAR_BASE_URL}/{filename}"
+
+    # if it's some other relative path, just prefix site (fallback)
+    if url.startswith("/"):
+        return f"https://spicychat.ai{url}"
+
+    return url
+
+
 def get_bots_data(timeframe="All", sort_by="delta", sort_asc=False, created_after="All", tags="", q=""):
 
     """

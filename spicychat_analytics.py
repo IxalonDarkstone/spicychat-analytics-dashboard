@@ -20,6 +20,8 @@ from core import (
 from routes_dashboard import register_dashboard_routes
 from routes_bots import register_bot_routes
 from routes_trending import register_trending_routes
+from routes_authors import register_author_routes
+
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -28,6 +30,7 @@ def create_app():
     register_dashboard_routes(app)
     register_bot_routes(app)
     register_trending_routes(app)
+    register_author_routes(app)   # ✅ ADD THIS
     return app
 
 

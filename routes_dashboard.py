@@ -42,31 +42,53 @@ def register_dashboard_routes(app):
         current_month_start = datetime.now().replace(day=1).strftime("%Y-%m-%d")
 
         df_raw = load_history_df()
-        # ================================
-        #  FIX 1 — EMPTY DATABASE PATH
-        # ================================
-        if df_raw.empty:
-            safe_log("Rendering index with no data.")
-            return render_template(
-                "index.html",
-                latest="No data",
-                total_messages="0",
-                total_bots=0,
-                totals=[],
-                bots=[],
+
+        dfc = compute_deltas(
+            df_raw,
+            chart_sort_by if chart_sort_by in ["7day", "30day", "current_month", "All"] else "7day"
+        )
+
+        # Always attempt to load bots
+        try:
+            bots, totals_list, total_messages, latest_date_from_bots = get_bots_data(
+                timeframe=timeframe,
                 sort_by=sort_by,
                 sort_asc=sort_asc,
-                chart_sort_by=chart_sort_by,
-                chart_sort_asc=chart_sort_asc,
                 created_after=created_after,
-                last_7_days=last_7_days,
-                last_30_days=last_30_days,
-                current_month_start=current_month_start,
-                timeframe=timeframe,
-                AUTH_REQUIRED=AUTH_REQUIRED,         # ← REQUIRED
-                last_snapshot=get_last_snapshot_time(), # ← REQUIRED
                 tags=tags,
+                q=q,
             )
+            total_bots = len(bots)
+        except Exception as e:
+            import logging
+            logging.error(f"Error in get_bots_data: {e}")
+            bots, total_messages, total_bots = [], 0, 0
+
+        # Totals history (safe even if df is empty)
+        if dfc.empty:
+            totals_data = []
+            latest = "No data"
+        else:
+            all_dates = sorted(dfc["date"].unique(), reverse=True)
+            latest = str(all_dates[0])
+
+            totals = (
+                dfc.groupby("date", as_index=False)
+                    .agg({"num_messages": "sum", "daily_messages": "sum"})
+                    .sort_values("date", ascending=False)
+            )
+
+            totals_data = [
+                {
+                    "date": str(row["date"]),
+                    "total": int(row["num_messages"]),
+                    "total_fmt": fmt_commas(row["num_messages"]),
+                    "daily": int(row["daily_messages"]),
+                    "daily_fmt": fmt_delta_commas(row["daily_messages"]),
+                }
+                for _, row in totals.iterrows()
+            ]
+
 
 
         # Continue when DF not empty
