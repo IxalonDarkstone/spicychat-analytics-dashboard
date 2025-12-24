@@ -104,8 +104,15 @@ if __name__ == "__main__":
             start_scheduler_later(3600)
             safe_log("Scheduler will start in 1 hour (--no_snapshot active).")
         else:
-            threading.Thread(target=snapshot_scheduler, daemon=True).start()
-            safe_log("Hourly snapshot scheduler started immediately.")
+            # If we already ran a startup snapshot, delay the scheduler so it doesn't run again immediately.
+            initial_delay = 3600  # 1 hour
+            threading.Thread(
+                target=snapshot_scheduler,
+                kwargs={"initial_delay_seconds": initial_delay},
+                daemon=True
+            ).start()
+            safe_log("Hourly snapshot scheduler started (delayed 1 hour after startup snapshot).")
+
 
         SNAPSHOT_THREAD_STARTED = True
 

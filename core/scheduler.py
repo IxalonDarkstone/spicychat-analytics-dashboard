@@ -1,3 +1,4 @@
+# scheduler.py
 import time
 import logging
 
@@ -6,13 +7,17 @@ from .auth import ensure_fresh_kinde_token
 from .snapshot import take_snapshot
 
 
-def snapshot_scheduler():
+def snapshot_scheduler(initial_delay_seconds: int = 0):
     """
     Runs every hour.
-    Attempts to refresh Kinde access token before each snapshot.
-    If auth fails, it pauses and tries again next hour.
+    Optionally waits `initial_delay_seconds` before the first run to avoid
+    double-snapshotting on app startup.
     """
     safe_log("Snapshot scheduler started (1-hour interval).")
+
+    if initial_delay_seconds and initial_delay_seconds > 0:
+        safe_log(f"Scheduler initial delay: sleeping {initial_delay_seconds} seconds…")
+        time.sleep(initial_delay_seconds)
 
     while True:
         try:

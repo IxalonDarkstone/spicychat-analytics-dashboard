@@ -251,10 +251,10 @@
           
 
         <!-- persist filters -->
-        <input type="hidden" name="and" value="{{ and_raw }}">
-        <input type="hidden" name="not" value="{{ not_raw }}">
-        <input type="hidden" name="tab" value="{{ active_tab }}">
-        <input type="hidden" name="author" value="{{ author_filter or '' }}">
+        <input type="hidden" name="and" value="{{ (and_raw or '')|trim }}">
+        <input type="hidden" name="not" value="{{ (not_raw or '')|trim }}">
+        <input type="hidden" name="tab" value="{{ (active_tab or '')|trim }}">
+        <input type="hidden" name="author" value="{{ (author_filter or '')|trim }}">
         <input type="hidden" name="page" value="1">
 
         <button class="primary-button" type="submit">Apply</button>
@@ -263,6 +263,9 @@
     <!-- RESET FILTERS -->
     <div style="margin-bottom:20px;">
         <a href="/global-trending" class="primary-button">Reset Filters</a>
+        <button id="toggleBlurTrending" class="btn-link" type="button">
+            Toggle Blur
+        </button>
     </div>
 
     <!-- ACTIVE FILTER CHIPS -->
@@ -275,13 +278,7 @@
         <span class="filter-chip" style="border-color:#4fa3ff; color:#4fa3ff;">
             Creator: {{ author_filter }}
             <a class="filter-chip-x"
-            href="?sort={{ sort_field }}&order={{ order }}
-                  &and={{ and_raw|urlencode }}
-                  &not={{ not_raw|urlencode }}
-                  &tab={{ active_tab }}&page=1
-                  {% if q %}&q={{ q|urlencode }}{% endif %}">
-             ×
-         </a>
+            href="?sort={{ sort_field|trim|urlencode }}&order={{ order|trim|urlencode }}&and={{ and_raw|trim|urlencode }}&not={{ not_raw|trim|urlencode }}&q={{ q|trim|urlencode }}&tab={{ active_tab|trim|urlencode }}&page=1">×</a>        
         </span>
         {% endif %}
 
@@ -290,14 +287,7 @@
         <span class="filter-chip">
             {{ t }}
             <a class="filter-chip-x"
-            href="?and={{ (and_tags | reject('equalto', t) | join(',')) | urlencode }}
-                    &not={{ not_raw | urlencode }}
-                    &q={{ q|urlencode }}
-                    &author={{ author_filter|urlencode }}
-                    &sort={{ sort_field }}&order={{ order }}
-                    &tab={{ active_tab }}&page=1">
-                ×
-            </a>
+            href="?and={{ (and_tags | reject('equalto', t) | join(','))|trim|urlencode }}&not={{ not_raw|trim|urlencode }}&q={{ q|trim|urlencode }}&author={{ author_filter|trim|urlencode }}&sort={{ sort_field|trim|urlencode }}&order={{ order|trim|urlencode }}&tab={{ active_tab|trim|urlencode }}&page=1">×</a>         
         </span>
         {% endfor %}
 
@@ -306,14 +296,7 @@
         <span class="filter-chip" style="border-color:#ff5f5f; color:#ff5f5f;">
             NOT {{ t }}
             <a class="filter-chip-x"
-            href="?not={{ (not_tags | reject('equalto', t) | join(',')) | urlencode }}
-                    &and={{ and_raw | urlencode }}                    
-                    &q={{ q|urlencode }}
-                    &author={{ author_filter|urlencode }}
-                    &sort={{ sort_field }}&order={{ order }}
-                    &tab={{ active_tab }}&page=1">
-                ×
-            </a>
+            href="?not={{ (not_tags | reject('equalto', t) | join(','))|trim|urlencode }}&and={{ and_raw|trim|urlencode }}&q={{ q|trim|urlencode }}&author={{ author_filter|trim|urlencode }}&sort={{ sort_field|trim|urlencode }}&order={{ order|trim|urlencode }}&tab={{ active_tab|trim|urlencode }}&page=1">×</a>         
         </span>
         {% endfor %}
 
@@ -368,17 +351,17 @@
                     {% if b.tags %}
                     <div class="bot-tags">
                         {% for tag in b.tags %}
-                        <a href="?and={{ (and_raw + ',' + tag)|urlencode if and_raw else tag|urlencode }}
-                                 &not={{ not_raw|urlencode }}
-                                 &q={{ q|urlencode }}
-                                 &sort={{ sort_field }}&order={{ order }}&tab={{ active_tab }}&page=1">
+                        <a href="?and={{ (and_raw + ',' + tag)|trim|urlencode if and_raw else tag|trim|urlencode }}
+                                 &not={{ not_raw|trim|urlencode }}
+                                 &q={{ q|trim|urlencode }}
+                                 &sort={{ (sort_field or '')|trim|urlencode }}&order={{ (order or '')|trim|urlencode }}
+                                 &tab={{ (active_tab or '')|trim|urlencode }}&page=1
+                                 ">
                             <span class="tag">{{ tag }}</span>
                         </a>
                         {% endfor %}
                     </div>
                     {% endif %}
-
-                    <a href="{{ b.link }}" target="_blank" class="details-link">Chat</a>
                 </div>
                 {% endfor %}
             </div>
@@ -390,11 +373,15 @@
                 <!-- First -->
                 {% if page > 1 %}
                 <a href="{{ url_for('global_trending',
-                                     page=1,
-                                     sort=sort_field, order=order,
-                                     and=and_raw, not=not_raw,
-                                     tab=active_tab,
-                                     q=q) }}">
+         page=page-1,
+         sort=(sort_field or '')|trim,
+         order=(order or '')|trim,
+         and=(and_raw or '')|trim,
+         not=(not_raw or '')|trim,
+         tab=(active_tab or '')|trim,
+         q=(q or '')|trim,
+         author=(author_filter or '')|trim)
+ }}">
                     ⏮ First
                 </a>
                 {% else %}
@@ -404,11 +391,15 @@
                 <!-- Prev -->
                 {% if page > 1 %}
                 <a href="{{ url_for('global_trending',
-                                     page=page-1,
-                                     sort=sort_field, order=order,
-                                     and=and_raw, not=not_raw,
-                                     tab=active_tab,
-                                     q=q) }}">
+         page=page-1,
+         sort=(sort_field or '')|trim,
+         order=(order or '')|trim,
+         and=(and_raw or '')|trim,
+         not=(not_raw or '')|trim,
+         tab=(active_tab or '')|trim,
+         q=(q or '')|trim,
+         author=(author_filter or '')|trim)
+ }}">
                     ◀ Prev
                 </a>
                 {% else %}
@@ -423,11 +414,15 @@
                 <!-- Next -->
                 {% if page < total_pages %}
                 <a href="{{ url_for('global_trending',
-                                     page=page+1,
-                                     sort=sort_field, order=order,
-                                     and=and_raw, not=not_raw,
-                                     tab=active_tab,
-                                     q=q) }}">
+         page=page-1,
+         sort=(sort_field or '')|trim,
+         order=(order or '')|trim,
+         and=(and_raw or '')|trim,
+         not=(not_raw or '')|trim,
+         tab=(active_tab or '')|trim,
+         q=(q or '')|trim,
+         author=(author_filter or '')|trim)
+ }}">
                     Next ▶
                 </a>
                 {% else %}
@@ -437,11 +432,15 @@
                 <!-- Last -->
                 {% if page < total_pages %}
                 <a href="{{ url_for('global_trending',
-                                     page=total_pages,
-                                     sort=sort_field, order=order,
-                                     and=and_raw, not=not_raw,
-                                     tab=active_tab,
-                                     q=q) }}">
+         page=page-1,
+         sort=(sort_field or '')|trim,
+         order=(order or '')|trim,
+         and=(and_raw or '')|trim,
+         not=(not_raw or '')|trim,
+         tab=(active_tab or '')|trim,
+         q=(q or '')|trim,
+         author=(author_filter or '')|trim)
+ }}">
                     Last ⏭
                 </a>
                 {% else %}
@@ -482,15 +481,16 @@
                                 <td>
                                     <a href="{{ url_for(
                                         'global_trending',
-                                        author=c.creator,
-                                        sort=sort_field,
-                                        order=order,
-                                        and=and_raw,
-                                        not=not_raw,
+                                        author=(c.creator or '')|trim,
+                                        sort=(sort_field or '')|trim,
+                                        order=(order or '')|trim,
+                                        and=(and_raw or '')|trim,
+                                        not=(not_raw or '')|trim,
                                         tab='creators',
                                         page=1,
-                                        q=q
+                                        q=(q or '')|trim
                                     ) }}">
+                                    
                                         {{ c.creator }}
                                     </a>
                                 </td>
@@ -530,22 +530,24 @@
                                 <!-- AND (✓) -->
                                 <a title="Require this tag"
                                 style="color:#74ff74; font-weight:bold; margin-right:12px;"
-                                href="?and={{ (and_raw + ',' + t.tag)|urlencode if and_raw else t.tag|urlencode }}
-                                            &not={{ not_raw|urlencode }}
-                                            &q={{ q|urlencode }}
-                                            &sort={{ sort_field }}&order={{ order }}
-                                            &tab=tags&page=1">
+                                href="?and={{ (and_raw + ',' + t.tag)|trim|urlencode if and_raw else t.tag|trim|urlencode }}
+                                            &not={{ not_raw|trim|urlencode }}
+                                            &q={{ q|trim|urlencode }}
+                                             &sort={{ (sort_field or '')|trim|urlencode }}&order={{ (order or '')|trim|urlencode }}
+                                            &tab={{ (active_tab or '')|trim|urlencode }}&page=1
+                                            ">
                                     ✓
                                 </a>
 
                                 <!-- NOT (✕) -->
                                 <a title="Exclude this tag"
                                 style="color:#ff6b6b; font-weight:bold;"
-                                href="?not={{ (not_raw + ',' + t.tag)|urlencode if not_raw else t.tag|urlencode }}
-                                            &and={{ and_raw|urlencode }}
-                                            &q={{ q|urlencode }}
-                                            &sort={{ sort_field }}&order={{ order }}
-                                            &tab=tags&page=1">
+                                href="?not={{ (not_raw + ',' + t.tag)|trim|urlencode if not_raw else t.tag|trim|urlencode }}
+                                            &and={{ and_raw|trim|urlencode }}
+                                            &q={{ q|trim|urlencode }}
+                                             &sort={{ (sort_field or '')|trim|urlencode }}&order={{ (order or '')|trim|urlencode }}
+                                            &tab={{ (active_tab or '')|trim|urlencode }}&page=1
+                                            ">
                                     ✕
                                 </a>
 
@@ -605,6 +607,33 @@ document.querySelectorAll(".sidebar-tab").forEach(btn => {
         });
     });
 </script>
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.getElementById("toggleBlurTrending");
+      if (!btn) return;
+    
+      const KEY = "global_trending_blur";
+    
+      function applyBlur(on) {
+        document.querySelectorAll(".bot-image").forEach(img => {
+          img.classList.toggle("blurred", on);
+        });
+      }
+    
+      // restore saved state
+      if (localStorage.getItem(KEY) === "true") {
+        applyBlur(true);
+      }
+    
+      btn.addEventListener("click", () => {
+        const enabled = document.querySelector(".bot-image.blurred") !== null;
+        const next = !enabled;
+        applyBlur(next);
+        localStorage.setItem(KEY, next ? "true" : "false");
+      });
+    });
+    </script>
+    
 <button id="scrollTopBtn" title="Back to top">↑</button>    
 </body>
 </html>

@@ -77,11 +77,18 @@
                     <button type="submit" class="primary-button">Take Snapshot</button>
                 </form>
                 <a href="/global-trending" class="primary-button">Global Trending</a>
-                <a href="/authors" class="primary-button">Favorite Creators</a>
+                <a href="/authors" class="primary-button" style="position:relative;">
+                    Favorite Creators
+                    <span id="newAuthorsBadge"
+                          style="display:none; margin-left:8px; padding:2px 8px; border-radius:999px;
+                                 font-size:12px; background:rgba(255,68,68,0.95); color:#fff;">
+                      0
+                    </span>
+                  </a>
+                  
             </div>
         </div>
     </header>
-
 
     <!-- KPI cards -->
     <section class="kpi-row">
@@ -526,7 +533,33 @@ document.addEventListener("DOMContentLoaded", () => {
             window.scrollTo({ top: 0, behavior: "smooth" });
         });
     });
-</script>
+</script>  
+<script>
+    document.addEventListener("DOMContentLoaded", async () => {
+        const badge = document.getElementById("newAuthorsBadge");
+        if (!badge) return;
+    
+        const KEY = "author_seen_map";
+        let seenMap = {};
+        try { seenMap = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch(e) {}
+    
+        try {
+        const seenParam = encodeURIComponent(JSON.stringify(seenMap));
+        const res = await fetch(`/api/author-new-counts?seen=${seenParam}`);
+        const data = await res.json();
+    
+        const n = data.total || 0;
+        if (n > 0) {
+            badge.textContent = n;
+            badge.style.display = "inline-block";
+        } else {
+            badge.style.display = "none";
+        }
+        } catch (e) {
+        // ignore
+        }
+    });
+</script>             
 <button id="scrollTopBtn" title="Back to top">↑</button>
 </body>
 </html>

@@ -1,6 +1,5 @@
 from flask import render_template, request, redirect, url_for
 from datetime import datetime
-from core.authors_service import backfill_missing_created_at
 from core import (
     safe_log,
     load_history_df,
@@ -9,7 +8,11 @@ from core import (
     remove_tracked_author,
     load_author_bots_for_date,
     refresh_single_author_snapshot,
+    ensure_author_tables,
 )
+import sqlite3
+from core.config import DATABASE
+import json
 
 ALL_KEY = "__ALL__"
 
@@ -76,27 +79,6 @@ def _load_all_tracked_bots(latest_stamp: str, authors: list[str]):
             all_bots.append(b2)
     return all_bots
 
-def _sort_bots(bots, sort_by: str, order: str):
-    sort_by = (sort_by or "created").lower()
-    order = (order or "desc").lower()
-    reverse = (order == "desc")
-
-    if sort_by == "name":
-        bots.sort(key=lambda b: (b.get("name") or "").lower(), reverse=reverse)
-        return
-
-    # default: created
-    def created_key(b):
-        v = (b.get("created_at") or "").strip()
-        # ISO sorts lexicographically if normalized; empty goes last when desc, first when asc
-        return v or ""
-
-    # If descending, we want empty created_at to go last -> use (is_empty, value)
-    if reverse:
-        bots.sort(key=lambda b: (1 if not (b.get("created_at") or "").strip() else 0, created_key(b)), reverse=False)
-    else:
-        bots.sort(key=lambda b: (0 if not (b.get("created_at") or "").strip() else 1, created_key(b)), reverse=False)
-
 def register_author_routes(app):
     @app.route("/authors", methods=["GET"])
     def authors_page():
@@ -106,9 +88,6 @@ def register_author_routes(app):
         q = (request.args.get("q") or "").strip()
         tags_raw = (request.args.get("tags") or "").strip()
         tags = _parse_tags(tags_raw)
-
-        sort_by = (request.args.get("sort") or "created").strip().lower()
-        order = (request.args.get("order") or "desc").strip().lower()
 
         latest_stamp = _latest_stamp_or_today()
 
@@ -125,8 +104,6 @@ def register_author_routes(app):
         bots = _filter_by_tags(base_bots, tags)
         bots = _filter_by_query(bots, q)
 
-        _sort_bots(bots, sort_by, order)
-
         return render_template(
             "authors.html",
             authors=authors,
@@ -137,8 +114,6 @@ def register_author_routes(app):
             tags=tags_raw,
             tags_list=tags_list,
             all_key=ALL_KEY,
-            sort=sort_by,
-            order=order,
         )
 
     @app.route("/authors/add", methods=["POST"])
@@ -162,8 +137,6 @@ def register_author_routes(app):
         author = (request.form.get("author") or "").strip()
         q = (request.form.get("q") or "").strip()
         tags_raw = (request.form.get("tags") or "").strip()
-        sort_by = (request.form.get("sort") or "created").strip().lower()
-        order = (request.form.get("order") or "desc").strip().lower()
 
         stamp = _latest_stamp_or_today()
 
@@ -175,7 +148,7 @@ def register_author_routes(app):
                     safe_log(f"Author Tracker: refreshed {a} ({n} bots) for {stamp}")
                 except Exception as e:
                     safe_log(f"Author Tracker: refresh failed for {a}: {e}")
-            return redirect(url_for("authors_page", q=q, tags=tags_raw, sort=sort_by, order=order))
+            return redirect(url_for("authors_page", q=q, tags=tags_raw))
 
         try:
             n = refresh_single_author_snapshot(stamp, author)
@@ -183,5 +156,66 @@ def register_author_routes(app):
         except Exception as e:
             safe_log(f"Author Tracker: refresh failed for {author}: {e}")
 
-        return redirect(url_for("authors_page", author=author, q=q, tags=tags_raw, sort=sort_by, order=order))
+        return redirect(url_for("authors_page", author=author, q=q, tags=tags_raw))
+    
+    @app.route("/api/author-new-counts", methods=["GET"])
+    def api_author_new_counts():
+        """
+        Returns counts of newly discovered author bots that are still "unseen".
 
+        Query params:
+        seen=<json>  e.g. {"ixalon":"2025-12-24T02:00:00+00:00","other":"..."}
+        """
+        ensure_author_tables()
+
+        seen_raw = (request.args.get("seen") or "").strip()
+        try:
+            seen_map = json.loads(seen_raw) if seen_raw else {}
+            if not isinstance(seen_map, dict):
+                seen_map = {}
+        except Exception:
+            seen_map = {}
+
+        def seen_for(author: str) -> str:
+            v = seen_map.get(author)
+            return v if isinstance(v, str) and v else "1970-01-01T00:00:00+00:00"
+
+        conn = sqlite3.connect(DATABASE)
+        cur = conn.cursor()
+
+        # Unseen counts by author + each author max unseen stamp
+        cur.execute("""
+            SELECT author, first_seen_at
+            FROM author_bot_map
+            WHERE first_seen_at IS NOT NULL
+            ORDER BY first_seen_at DESC
+        """)
+        rows = cur.fetchall() or []
+        conn.close()
+
+        by_author = {}
+        by_author_max = {}
+        total = 0
+
+        for author, first_seen_at in rows:
+            if not author or not first_seen_at:
+                continue
+            cutoff = seen_for(author)
+            if first_seen_at > cutoff:
+                by_author[author] = by_author.get(author, 0) + 1
+                total += 1
+                # rows are sorted desc, so first time we see author is the max unseen
+                if author not in by_author_max:
+                    by_author_max[author] = first_seen_at
+
+        # overall max unseen (optional, handy)
+        max_stamp = ""
+        if by_author_max:
+            max_stamp = max(by_author_max.values())
+
+        return {
+            "total": int(total),
+            "max_stamp": max_stamp,
+            "by_author": by_author,
+            "by_author_max": by_author_max,
+        }

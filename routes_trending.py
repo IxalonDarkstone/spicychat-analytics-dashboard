@@ -134,8 +134,20 @@ def register_trending_routes(app):
         )
 
     @app.route("/global-trending")
+    
+
+    
     def global_trending():
-        
+            def _qs(name, default=""):
+                return (request.args.get(name) or default).strip()
+
+            sort_field = _qs("sort", "rank").lower()
+            order = _qs("order", "asc").lower()
+            and_raw = _qs("and", "")
+            not_raw = _qs("not", "")
+            q = _qs("q", "")
+            active_tab = _qs("tab", "creators")
+            author_filter = _qs("author", "")
             q = request.args.get("q", "").strip().lower()
             
             # --------------------------------------------

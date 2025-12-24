@@ -36,10 +36,6 @@
     .author-search input[name="q"] { width:min(420px, 50vw); padding:8px 12px; border-radius:999px; border:1px solid var(--border-color);
       background:var(--bg-color); color:var(--text-color); font-size:13px; }
 
-    .sort-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .sort-controls select { padding:8px 12px; border-radius:999px; border:1px solid var(--border-color);
-      background:var(--bg-color); color:var(--text-color); font-size:13px; }
-
     .chip-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:10px 0 6px; }
     .chip { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px;
       border:1px solid var(--border-color); background:rgba(255,255,255,0.04); font-size:12px; }
@@ -87,7 +83,7 @@
         <div class="author-list">
           <div class="author-row">
             <a class="author-item {% if selected_author == all_key %}active{% endif %}"
-               href="{{ url_for('authors_page', author=all_key, q=q, tags=tags, sort=sort, order=order) }}">
+               href="{{ url_for('authors_page', author=all_key, q=q, tags=tags) }}">
               All Tracked
             </a>
             <div></div>
@@ -97,9 +93,18 @@
             {% for a in authors %}
               <div class="author-row">
                 <a class="author-item {% if a == selected_author %}active{% endif %}"
-                   href="{{ url_for('authors_page', author=a, q=q, tags=tags, sort=sort, order=order) }}">
-                  {{ a }}
+                data-author="{{ a }}"
+                href="{{ url_for('authors_page', author=a, q=q, tags=tags) }}"
+                style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                <span>{{ a }}</span>
+                <span class="author-new-badge"
+                        data-author="{{ a }}"
+                        style="display:none; padding:2px 8px; border-radius:999px; font-size:12px;
+                            background:rgba(255,68,68,0.95); color:#fff;">
+                    0
+                </span>
                 </a>
+
                 <form method="post" action="{{ url_for('authors_remove') }}">
                   <input type="hidden" name="author" value="{{ a }}">
                   <button type="submit" class="author-remove" title="Remove">×</button>
@@ -132,42 +137,42 @@
             <form method="get" action="{{ url_for('authors_page') }}" class="author-search">
               <input type="hidden" name="author" value="{{ selected_author }}">
               <input type="hidden" name="tags" value="{{ tags }}">
-              <input type="hidden" name="sort" value="{{ sort }}">
-              <input type="hidden" name="order" value="{{ order }}">
               <input name="q" value="{{ q }}" placeholder="Search bots (name/title/tags)…" />
               <button class="primary-button" type="submit">Search</button>
               {% if q %}
                 <a class="primary-button"
-                   href="{{ url_for('authors_page', author=selected_author, tags=tags, sort=sort, order=order) }}">Clear</a>
+                   href="{{ url_for('authors_page', author=selected_author, tags=tags) }}">Clear</a>
               {% endif %}
-            </form>
-
-            <form method="get" action="{{ url_for('authors_page') }}" class="sort-controls">
-              <input type="hidden" name="author" value="{{ selected_author }}">
-              <input type="hidden" name="tags" value="{{ tags }}">
-              <input type="hidden" name="q" value="{{ q }}">
-              <select name="sort">
-                <option value="created" {% if sort == "created" %}selected{% endif %}>Created</option>
-                <option value="name" {% if sort == "name" %}selected{% endif %}>Bot Name</option>
-              </select>
-              <select name="order">
-                <option value="desc" {% if order == "desc" %}selected{% endif %}>Desc</option>
-                <option value="asc" {% if order == "asc" %}selected{% endif %}>Asc</option>
-              </select>
-              <button class="primary-button" type="submit">Sort</button>
             </form>
 
             <form method="post" action="{{ url_for('authors_refresh') }}">
               <input type="hidden" name="author" value="{{ selected_author }}">
               <input type="hidden" name="q" value="{{ q }}">
               <input type="hidden" name="tags" value="{{ tags }}">
-              <input type="hidden" name="sort" value="{{ sort }}">
-              <input type="hidden" name="order" value="{{ order }}">
               <button class="primary-button" type="submit">Refresh Now</button>
+              <button id="toggleBlurAuthors" type="button" class="btn-link">Toggle Blur</button>
             </form>
           </div>
         </div>
-
+        {% if tags_list %}
+        <div class="chip-row">
+          {% for item in tags_list %}
+            {% set tag = item.tag %}
+            {% set count = item.count %}
+            {% set active = (tags.split(',') if tags else []) %}
+            {% set next_tags = ((active + [tag]) | unique | join(',')) %}
+      
+            <a href="{{ url_for('authors_page',
+                                author=selected_author,
+                                q=q,
+                                tags=next_tags) }}"
+               class="chip"
+               title="Filter by {{ tag }}">
+              {{ tag }} <span style="opacity:.6">({{ count }})</span>
+            </a>
+          {% endfor %}
+        </div>
+      {% endif %}
         {% if tags %}
           {% set active_tags = tags.split(',') %}
           <div class="chip-row">
@@ -175,10 +180,10 @@
               {% set remaining = (active_tags | reject('equalto', t) | join(',')) %}
               <span class="chip">
                 {{ t }}
-                <a href="{{ url_for('authors_page', author=selected_author, q=q, tags=remaining, sort=sort, order=order) }}" title="Remove tag">×</a>
+                <a href="{{ url_for('authors_page', author=selected_author, q=q, tags=remaining) }}" title="Remove tag">×</a>
               </span>
             {% endfor %}
-            <a class="btn-link" href="{{ url_for('authors_page', author=selected_author, q=q, tags='', sort=sort, order=order) }}">Reset tags</a>
+            <a class="btn-link" href="{{ url_for('authors_page', author=selected_author, q=q, tags='') }}">Reset tags</a>
           </div>
         {% endif %}
 
@@ -201,9 +206,6 @@
                   {% if selected_author == all_key and b.author %}
                     <span class="meta-pill">by {{ b.author }}</span>
                   {% endif %}
-                  {% if b.created_at %}
-                    <span class="meta-pill">Created: {{ b.created_at[:10] }}</span>
-                  {% endif %}
                 </div>
 
                 {% if b.tags %}
@@ -211,16 +213,12 @@
                     {% set active = (tags.split(',') if tags else []) %}
                     {% for tag in b.tags %}
                       {% set next_tags = ((active + [tag]) | unique | join(',')) %}
-                      <a href="{{ url_for('authors_page', author=selected_author, q=q, tags=next_tags, sort=sort, order=order) }}">
+                      <a href="{{ url_for('authors_page', author=selected_author, q=q, tags=next_tags) }}">
                         <span class="tag">{{ tag }}</span>
                       </a>
                     {% endfor %}
                   </div>
                 {% endif %}
-
-                <div class="bot-actions">
-                  <a class="details-link" target="_blank" href="{{ b.link }}">Chat</a>
-                </div>
               </div>
             {% endfor %}
           </div>
@@ -243,6 +241,92 @@
       btn.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
     });
   </script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.getElementById("toggleBlurAuthors");
+      if (!btn) return;
+    
+      const KEY = "authors_blur";
+    
+      function applyBlur(on) {
+        document.querySelectorAll(".bot-image").forEach(img => {
+          img.classList.toggle("blurred", on);
+        });
+      }
+    
+      // load saved preference
+      const saved = localStorage.getItem(KEY);
+      if (saved === "true") applyBlur(true);
+    
+      btn.addEventListener("click", () => {
+        const currentlyOn = document.querySelector(".bot-image.blurred") !== null;
+        const next = !currentlyOn;
+        applyBlur(next);
+        localStorage.setItem(KEY, next ? "true" : "false");
+      });
+    });
+    </script>
+    <script>
+        document.addEventListener("DOMContentLoaded", async () => {
+          const KEY = "author_seen_map";
+          const selectedAuthor = "{{ selected_author|e }}";
+          const ALL_KEY = "{{ all_key|e }}";
+        
+          function loadSeenMap() {
+            try { return JSON.parse(localStorage.getItem(KEY) || "{}"); }
+            catch (e) { return {}; }
+          }
+          function saveSeenMap(m) {
+            localStorage.setItem(KEY, JSON.stringify(m || {}));
+          }
+        
+          let seenMap = loadSeenMap();
+        
+          async function refreshBadges() {
+            // clear
+            document.querySelectorAll(".author-new-badge").forEach(b => {
+              b.style.display = "none";
+              b.textContent = "0";
+            });
+        
+            const seenParam = encodeURIComponent(JSON.stringify(seenMap));
+            const res = await fetch(`/api/author-new-counts?seen=${seenParam}`);
+            const data = await res.json();
+        
+            // paint
+            const by = data.by_author || {};
+            Object.keys(by).forEach(author => {
+              const n = by[author] || 0;
+              const el = document.querySelector(`.author-new-badge[data-author="${CSS.escape(author)}"]`);
+              if (el && n > 0) {
+                el.textContent = n;
+                el.style.display = "inline-block";
+              }
+            });
+        
+            return data; // includes by_author_max
+          }
+        
+          // 1) initial paint
+          let latest = null;
+          try { latest = await refreshBadges(); } catch (e) {}
+        
+          // 2) dismiss when landing on a specific author page (reliable)
+          if (latest && selectedAuthor && selectedAuthor !== ALL_KEY) {
+            const maxMap = latest.by_author_max || {};
+            // Prefer exact author's max-unseen stamp, but if missing, use "now" to dismiss what's currently showing.
+            const stamp = maxMap[selectedAuthor] || new Date().toISOString();
+          
+            seenMap[selectedAuthor] = stamp;
+            saveSeenMap(seenMap);
+          
+            // repaint immediately so the badge disappears now
+            try { await refreshBadges(); } catch (e) {}
+          }
+          
+        });
+    </script>
+         
   <button id="scrollTopBtn" title="Back to top">↑</button>
 </body>
 </html>
