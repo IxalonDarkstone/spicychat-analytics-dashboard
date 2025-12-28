@@ -10,23 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div id="authWarning"
-    style="display: {{ 'block' if auth_required else 'none' }};
-           background:#1c1c1f;
-           border:1px solid #ff4444;
-           padding:16px;
-           margin-bottom:20px;
-           border-radius:8px;
-           color:#eee;
-           font-size:16px;">
-   
-   <strong>Authentication Required</strong><br>
-   Your SpicyChat credentials are missing or expired.<br>
-   Please re-authenticate to resume snapshots.
-   <br><br>
-   <button id="authButton" class="primary-button">Re-Authenticate</button>
-</div>
-
+    
 <div class="container">
 
     
@@ -39,12 +23,12 @@
     <div class="auth-box">
         <h3 style="margin-top:0;color:#4aa8ff;">🔐 Authentication Required</h3>
         <p>Your SpicyChat login is missing or expired.</p>
-        <p>Click the button below to open the browser window.</p>
+        <p>Click the button below to open the browser window (might be behind other windows).</p>
         <p>Log in using <strong>Email Authentication</strong> and your verification code.</p>
-        <p>Click on My Creations after logging in.</p>
+        <p>Click on My Creations > Chatbots after logging in.</p>
         <p>⚠️<strong>Do not close the browser window</strong> after logging in.</p>
         <p>Return to the console and press Enter to capture tokens.</p>
-        <p>If you get an error, use the second browser instance. Both will close upon capture.</p>
+        <p>Browser will close upon successful capture.</p>
         <button id="authButton" class="primary-button">Re-Authenticate</button>
     </div>
 
