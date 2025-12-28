@@ -18,6 +18,7 @@ import urllib.parse as urlparse
 from .config import *
 from .logging_utils import safe_log
 from .fs_utils import ensure_dirs
+import core
 
 # ------------------ Auth & token management ------------------
 def load_auth_credentials():
@@ -144,18 +145,17 @@ def ensure_fresh_kinde_token():
     Ensure we have a fresh access token; refresh via Kinde when possible.
     Returns (bearer_token, guest_userid) or (None, None) if auth is required.
     """
-    global AUTH_REQUIRED
 
     bearer, guest, refresh_token, expires_at, client_id = load_auth_credentials()
 
     # Missing credentials
     if not bearer or not guest:
-        AUTH_REQUIRED = True
+        core.AUTH_REQUIRED = True
         return None, None
 
     # No expiration known → treat as expired
     if not expires_at:
-        AUTH_REQUIRED = True
+        core.AUTH_REQUIRED = True
         return None, None
 
     # Fresh enough
@@ -168,7 +168,7 @@ def ensure_fresh_kinde_token():
 
     if not new_tokens or not new_tokens.get("access_token"):
         safe_log("Kinde refresh failed — auth required.")
-        AUTH_REQUIRED = True
+        core.AUTH_REQUIRED = True
         return None, None
 
     new_bearer = new_tokens["access_token"]
@@ -177,7 +177,7 @@ def ensure_fresh_kinde_token():
 
     save_auth_credentials(new_bearer, guest, new_refresh, new_expires)
 
-    AUTH_REQUIRED = False
+    core.AUTH_REQUIRED = False
     safe_log("Kinde token refresh successful.")
 
     return new_bearer, guest
@@ -210,8 +210,74 @@ def capture_auth_credentials(wait_rounds=18):
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
-        ctx = browser.new_context()
+        ctx = browser.new_context(no_viewport=True)
+        OVERLAY_JS = r"""
+(() => {
+function ensureOverlay() {
+    if (document.getElementById("sa-auth-overlay")) return;
+
+    const box = document.createElement("div");
+    box.id = "sa-auth-overlay";
+    box.style.cssText = `
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 2147483647;
+    width: 420px;
+    background: rgba(18,18,20,0.96);
+    color: #eee;
+    border: 1px solid rgba(74,168,255,0.65);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    padding: 12px 14px;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.35;
+    `;
+
+    box.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div style="font-weight:800; color:#4aa8ff;">🔐 SpicyChat Auth Capture</div>
+        <button id="sa-auth-overlay-hide" style="
+        background:#4aa8ff; color:#07121f; border:none;
+        padding:6px 10px; border-radius:8px; cursor:pointer;
+        font-weight:700;
+        ">Hide</button>
+    </div>
+
+    <div style="margin-top:8px; opacity:0.95;">
+        <ol style="margin:8px 0 0 18px; padding:0;">
+        <li>Log in (email + code) if prompted.</li>
+        <li>Navigate to <b>My Creations</b> / <b>My Chatbots</b>.</li>
+        <li>Leave this window open until the app reports success.</li>
+        </ol>
+    </div>
+
+    <div id="sa-auth-overlay-status" style="margin-top:10px; font-size:13px; opacity:0.85;">
+        Tip: if this window opened behind apps, press <b>Alt+Tab</b> and select it.
+    </div>
+    `;
+
+    document.documentElement.appendChild(box);
+
+    const hideBtn = document.getElementById("sa-auth-overlay-hide");
+    if (hideBtn) {
+    hideBtn.addEventListener("click", () => {
+        box.style.display = "none";
+    });
+    }
+}
+
+// Ensure on initial load + SPAs that swap content.
+ensureOverlay();
+const obs = new MutationObserver(() => ensureOverlay());
+obs.observe(document.documentElement, { childList: true, subtree: true });
+})();
+"""
+
+        # In capture_auth_credentials():
         page = ctx.new_page()
+        page.add_init_script(OVERLAY_JS)
 
         def on_request(req):
             nonlocal bearer_token, guest_userid, discovered_client_id
