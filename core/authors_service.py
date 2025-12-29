@@ -19,43 +19,53 @@ def _utc_now_iso() -> str:
 
 def ensure_author_tables():
     conn = sqlite3.connect(DATABASE)
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    # tracked authors
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS tracked_authors (
-            author TEXT PRIMARY KEY,
-            added_at TEXT
-        )
-    """)
+        # tracked authors
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS tracked_authors (
+                author TEXT PRIMARY KEY,
+                added_at TEXT
+            )
+        """)
 
-    # static per bot (fetched once globally)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS bot_static (
-            bot_id TEXT PRIMARY KEY,
-            bot_name TEXT,
-            bot_title TEXT,
-            tags_json TEXT,
-            avatar_url TEXT,
-            created_at TEXT,
-            fetched_at TEXT
-        )
-    """)
+        # static per bot (fetched once globally)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS bot_static (
+                bot_id TEXT PRIMARY KEY,
+                bot_name TEXT,
+                bot_title TEXT,
+                tags_json TEXT,
+                avatar_url TEXT,
+                created_at TEXT,
+                fetched_at TEXT
+            )
+        """)
 
-    # mapping author -> bot_id (no date dimension; always current catalog)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS author_bot_map (
-            author TEXT NOT NULL,
-            bot_id TEXT NOT NULL,
-            first_seen_at TEXT,
-            last_seen_at TEXT,
-            PRIMARY KEY (author, bot_id)
-        )
-    """)
+        # mapping author -> bot_id (no date dimension; always current catalog)
+        # include seen_at in the canonical schema
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS author_bot_map (
+                author TEXT NOT NULL,
+                bot_id TEXT NOT NULL,
+                first_seen_at TEXT,
+                last_seen_at TEXT,
+                seen_at TEXT,
+                PRIMARY KEY (author, bot_id)
+            )
+        """)
 
-    conn.commit()
-    conn.close()
+        # Back-compat migration: if table already exists without seen_at, add it.
+        cur.execute("PRAGMA table_info(author_bot_map)")
+        cols = [r[1] for r in cur.fetchall()]
+        if "seen_at" not in cols:
+            cur.execute("ALTER TABLE author_bot_map ADD COLUMN seen_at TEXT")
+            safe_log("[Author Tracker] Migrated author_bot_map: added seen_at")
 
+        conn.commit()
+    finally:
+        conn.close()
 
 # ------------------ tracked authors ------------------
 
@@ -289,17 +299,6 @@ def fetch_typesense_bot_details_by_ids(bot_ids: List[str]) -> Dict[str, dict]:
 # ------------------ public API used by routes/snapshot ------------------
 
 def refresh_single_author_snapshot(stamp: str, author: str) -> int:
-    """
-    Incremental refresh:
-      - Query Typesense to discover current bot ids for author (minimal fields)
-      - Compare to DB author_bot_map -> identify NEW ids
-      - For NEW ids only:
-          - fetch static fields once
-          - fetch created_at once (from collection that has it)
-          - insert into bot_static (INSERT OR IGNORE)
-          - insert into author_bot_map (UPSERT)
-    Returns number of NEW bots added for this author.
-    """
     ensure_author_tables()
     author = (author or "").strip()
     if not author:
@@ -311,25 +310,45 @@ def refresh_single_author_snapshot(stamp: str, author: str) -> int:
         return 0
 
     existing = _author_existing_bot_ids(author)
-    new_ids = [bid for bid in current_ids if bid not in existing]
 
-    # If this is the first time we've ever seen this author in author_bot_map,
-    # baseline their existing catalog (first_seen_at NULL), but still set last_seen_at.
+    # ✅ FIRST TIME: baseline existing catalog (NOT "new"), but still populate bot_static
     if not existing:
         _upsert_author_map(author, current_ids, first_seen_at=None)
-    else:
-        _upsert_author_map(author, current_ids, first_seen_at=_utc_now_iso())
 
-    if new_ids:
-        _upsert_author_map(author, new_ids, first_seen_at=_utc_now_iso())
+        static_missing = _bot_static_missing_ids(current_ids)
+        if static_missing:
+            details_map = fetch_typesense_bot_details_by_ids(static_missing)
+            fetched_at = _utc_now_iso()
+            rows_to_insert = []
+            for bid in static_missing:
+                d = details_map.get(bid)
+                if not d:
+                    continue
+                rows_to_insert.append((
+                    bid,
+                    d.get("name") or "",
+                    d.get("title") or "",
+                    json.dumps(d.get("tags") or []),
+                    d.get("avatar_url") or "",
+                    fetched_at,
+                ))
+            _insert_bot_static(rows_to_insert)
+
+        safe_log(f"[Author Tracker] {author}: baselined {len(current_ids)} bots (not marked new).")
+        return 0
+
+    # ✅ NORMAL CASE: only truly new IDs get first_seen_at set
+    new_ids = [bid for bid in current_ids if bid not in existing]
+
+    _upsert_author_map(author, current_ids, first_seen_at=_utc_now_iso())
 
     if not new_ids:
         safe_log(f"[Author Tracker] {author}: no new bots.")
         return 0
 
-    # if bot already exists in bot_static globally, we do NOT re-fetch static details
-    static_missing = _bot_static_missing_ids(new_ids)
+    _upsert_author_map(author, new_ids, first_seen_at=_utc_now_iso())
 
+    static_missing = _bot_static_missing_ids(new_ids)
     if not static_missing:
         safe_log(f"[Author Tracker] {author}: {len(new_ids)} new for author, but all already in bot_static.")
         return len(new_ids)
@@ -338,12 +357,10 @@ def refresh_single_author_snapshot(stamp: str, author: str) -> int:
 
     fetched_at = _utc_now_iso()
     rows_to_insert = []
-
     for bid in static_missing:
         d = details_map.get(bid)
         if not d:
             continue
-
         rows_to_insert.append((
             bid,
             d.get("name") or "",
@@ -354,7 +371,6 @@ def refresh_single_author_snapshot(stamp: str, author: str) -> int:
         ))
 
     _insert_bot_static(rows_to_insert)
-
 
     safe_log(
         f"[Author Tracker] {author}: added {len(new_ids)} new bots "
@@ -388,22 +404,25 @@ def load_author_bots(author: str) -> List[dict]:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT s.bot_id, s.bot_name, s.bot_title, s.tags_json, s.avatar_url
+        SELECT s.bot_id, s.bot_name, s.bot_title, s.tags_json, s.avatar_url, m.first_seen_at, m.seen_at
         FROM author_bot_map m
         JOIN bot_static s ON s.bot_id = m.bot_id
         WHERE m.author = ?
         """,
         (author,),
     )
+
     rows = cur.fetchall()
     conn.close()
 
     out = []
-    for bot_id, name, title, tags_json, avatar_url in rows:
+    for bot_id, name, title, tags_json, avatar_url, first_seen_at, seen_at in rows:
         try:
             tags = json.loads(tags_json) if tags_json else []
         except Exception:
             tags = []
+
+        is_new = bool(first_seen_at) and not seen_at
 
         out.append({
             "bot_id": str(bot_id),
@@ -412,10 +431,51 @@ def load_author_bots(author: str) -> List[dict]:
             "tags": tags,
             "avatar_url": normalize_avatar_url(avatar_url or ""),
             "link": f"https://spicychat.ai/chat/{bot_id}",
+            "first_seen_at": first_seen_at,
+            "seen_at": seen_at,
+            "is_new": is_new,  # <-- use this everywhere
         })
     return out
+
 
 
 # Back-compat: your routes call this with (stamp, author). We ignore stamp now.
 def load_author_bots_for_date(stamp: str, author: str) -> List[dict]:
     return load_author_bots(author)
+
+def mark_bot_seen(bot_id: str):
+    bot_id = (bot_id or "").strip()
+    if not bot_id:
+        return
+    ensure_author_tables()
+    now = _utc_now_iso()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+    # global: clear NEW for this bot wherever it appears
+    cur.execute(
+        "UPDATE author_bot_map SET seen_at = ? WHERE bot_id = ?",
+        (now, bot_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_all_seen(author: Optional[str] = None):
+    ensure_author_tables()
+    now = _utc_now_iso()
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+
+    if author and author.strip():
+        cur.execute(
+            "UPDATE author_bot_map SET seen_at = ? WHERE author = ? AND first_seen_at IS NOT NULL",
+            (now, author.strip()),
+        )
+    else:
+        cur.execute(
+            "UPDATE author_bot_map SET seen_at = ? WHERE first_seen_at IS NOT NULL",
+            (now,),
+        )
+
+    conn.commit()
+    conn.close()
