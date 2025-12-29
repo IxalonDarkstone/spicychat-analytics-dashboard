@@ -5,7 +5,7 @@ from core import (
     AVATAR_BASE_URL,
     safe_log,
     load_history_df,
-    # etc – whatever your trending/global_trending routes already use
+    get_last_snapshot_time,
 )
 
 
@@ -61,6 +61,7 @@ def register_trending_routes(app):
                 top5_total=top5_total,
                 top10_total=top10_total,
                 my_bots_count=my_bots_count,
+                last_snapshot=get_last_snapshot_time(),
             )
 
         # Latest snapshot date for "your bots" data
@@ -131,12 +132,10 @@ def register_trending_routes(app):
             top5_total=top5_total,
             top10_total=top10_total,
             my_bots_count=my_bots_count,
+            last_snapshot=get_last_snapshot_time(),
         )
 
     @app.route("/global-trending")
-    
-
-    
     def global_trending():
             def _qs(name, default=""):
                 return (request.args.get(name) or default).strip()
@@ -302,4 +301,5 @@ def register_trending_routes(app):
                 q=q,
                 ts_total=len(ts_map_filtered),
                 filtered_total=len(ts_list),
+                last_snapshot=get_last_snapshot_time(),
             )

@@ -11,8 +11,9 @@
             width: 100%;
             max-width: 1900px;
             margin: 32px auto;
-            padding: 0 20px;
+            padding: 24px;          /* ✅ restores the standard inset */
         }
+        
 
         /* FLEX LAYOUT */
         .layout-container {
@@ -217,8 +218,19 @@
         </div>
 
         <div class="header-right">
-            <a href="/" class="primary-button">Back</a>
+            <div class="stats">
+              {% if last_snapshot %}
+                <h3>Last Snapshot:
+                  <span class="stat-value">{{ last_snapshot }}</span>
+                </h3>
+              {% endif %}
+            </div>
+          
+        <div class="header-actions" style="display:flex; gap:10px; align-items:center;">
+            <a href="{{ url_for('index') }}" class="primary-button">← Dashboard</a>
+            <a href="/authors" class="primary-button">Favorite Creators</a>
         </div>
+          
     </header>
 
     <!-- SORT BAR -->
@@ -474,7 +486,6 @@
                 <div id="tab-creators"
                      class="sidebar-tab-content {% if active_tab=='creators' %}active{% endif %}">
                     <table class="sidebar-table">
-                        <thead><tr><th>Creator</th><th>#</th></tr></thead>
                         <tbody>
                             {% for c in creators %}
                             <tr>
@@ -506,14 +517,6 @@
                     class="sidebar-tab-content {% if active_tab=='tags' %}active{% endif %}">
 
                     <table class="sidebar-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 55%;">Tag</th>
-                                <th style="width: 15%;">#</th>
-                                <th style="width: 30%;">Filter</th>
-                            </tr>
-                        </thead>
-
                         <tbody>
                         {% for t in tags %}
                         <tr>

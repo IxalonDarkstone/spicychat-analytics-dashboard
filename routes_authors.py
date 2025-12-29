@@ -17,6 +17,7 @@ from core import (
     load_author_bots_for_date,
     refresh_single_author_snapshot,
     ensure_author_tables,
+    get_last_snapshot_time,
 )
 from core.config import DATABASE
 from core.authors_service import mark_bot_seen, mark_all_seen, fetch_typesense_bot_ids_by_author
@@ -209,6 +210,7 @@ def register_author_routes(app):
             order=order,
             add_error=add_error,
             add_author=add_author,
+            last_snapshot=get_last_snapshot_time(),
         )
 
     @app.get("/go-bot/<bot_id>")

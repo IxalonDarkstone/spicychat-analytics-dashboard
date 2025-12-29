@@ -358,7 +358,15 @@
       </div>
 
       <div class="header-right">
-        <div class="header-actions">
+        <div class="stats">
+          {% if last_snapshot %}
+            <h3>Last Snapshot:
+              <span class="stat-value">{{ last_snapshot }}</span>
+            </h3>
+          {% endif %}
+        </div>
+      
+        <div class="header-actions" style="display:flex; gap:10px; align-items:center;">
           <a href="{{ url_for('index') }}" class="primary-button">← Dashboard</a>
           <a href="/global-trending" class="primary-button">Global Trending</a>
         </div>
@@ -555,13 +563,6 @@
 
         <div class="tags-scroll">
           <table class="tags-table">
-            <thead>
-              <tr>
-                <th class="tag-col">Tag</th>
-                <th class="count-col">#</th>
-                <th class="action-col"></th>
-              </tr>
-            </thead>
             <tbody>
               {% for t in tags_list %}
                 <tr>
