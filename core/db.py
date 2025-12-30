@@ -20,7 +20,17 @@ from .logging_utils import safe_log
 
 
 # ------------------ Database ------------------
+_DB_INIT_DONE = False
+_DB_INIT_LOCK = threading.Lock()
+
 def init_db():
+    global _DB_INIT_DONE
+    if _DB_INIT_DONE:
+        return
+
+    with _DB_INIT_LOCK:
+        if _DB_INIT_DONE:
+            return
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
 
@@ -164,6 +174,7 @@ def init_db():
 
         conn.commit()
 
+    _DB_INIT_DONE = True
     safe_log(f"Database initialized/verified at {DATABASE}")
 
 def load_cached_rating_map(bot_ids=None):

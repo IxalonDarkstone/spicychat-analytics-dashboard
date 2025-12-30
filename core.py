@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 import pytz
 import threading
-from playwright.sync_api import sync_playwright
 import urllib.parse as urlparse
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
 
 # ------------------ Config ------------------
 BASE_DIR = Path(__file__).resolve().parent
@@ -269,47 +269,6 @@ def save_auth_credentials(
         logging.error(f"Error saving auth credentials: {e}")
 
 
-KINDE_DOMAIN = "gamma.kinde.com"
-
-
-def get_kinde_client_id():
-    """
-    Returns the Kinde client_id stored in auth_credentials.json.
-    If missing, we cannot refresh tokens → require reauth.
-    """
-    if AUTH_FILE.exists():
-        try:
-            with open(AUTH_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                cid = data.get("client_id")
-                if cid:
-                    return cid
-        except Exception as e:
-            safe_log(f"Error loading client_id: {e}")
-
-    safe_log("No Kinde client_id found. Reauth is required.")
-    return None
-
-
-def refresh_kinde_token(refresh_token, client_id):
-    if not client_id:
-        safe_log("No client_id available, cannot refresh — reauth required.")
-        return None
-
-    url = f"https://{KINDE_DOMAIN}/oauth2/token"
-    payload = {
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "client_id": client_id,
-    }
-
-    try:
-        r = requests.post(url, data=payload, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        safe_log(f"Kinde refresh failed: {e}")
-        return None
 
 
 def test_auth_credentials(bearer_token, guest_userid):
@@ -346,150 +305,132 @@ def test_auth_credentials(bearer_token, guest_userid):
 
 def ensure_fresh_kinde_token():
     """
-    Ensure we have a fresh access token; refresh via Kinde when possible.
+    Legacy name kept for compatibility.
+
+    We do NOT use Kinde anymore.
+    We only ensure we have a usable SpicyChat bearer token + guest_userid.
     Returns (bearer_token, guest_userid) or (None, None) if auth is required.
     """
     global AUTH_REQUIRED
 
-    bearer, guest, refresh_token, expires_at, client_id = load_auth_credentials()
+    bearer, guest, _refresh, _expires, _client_id = load_auth_credentials()
 
-    # Missing credentials
     if not bearer or not guest:
         AUTH_REQUIRED = True
         return None, None
 
-    # No expiration known → treat as expired
-    if not expires_at:
+    # Optional: validate right here so scheduler/snapshot can pause cleanly
+    if not test_auth_credentials(bearer, guest):
         AUTH_REQUIRED = True
         return None, None
-
-    # Fresh enough
-    if time.time() < (expires_at - 60):
-        return bearer, guest
-
-    # Try refreshing
-    safe_log("Token expired — attempting Kinde refresh...")
-    new_tokens = refresh_kinde_token(refresh_token, client_id)
-
-    if not new_tokens or not new_tokens.get("access_token"):
-        safe_log("Kinde refresh failed — auth required.")
-        AUTH_REQUIRED = True
-        return None, None
-
-    new_bearer = new_tokens["access_token"]
-    new_refresh = new_tokens.get("refresh_token", refresh_token)
-    new_expires = time.time() + new_tokens.get("expires_in", 3600)
-
-    save_auth_credentials(new_bearer, guest, new_refresh, new_expires)
 
     AUTH_REQUIRED = False
-    safe_log("Kinde token refresh successful.")
-
-    return new_bearer, guest
+    return bearer, guest
 
 # ------------------ Capture auth via Playwright ------------------
-def capture_auth_credentials(wait_rounds=18):
+def capture_auth_credentials(timeout_sec: int = 180):
     """
     Manual auth capture:
     - Launch browser
     - User logs in (including Google)
-    - Navigate to My Chatbots
+    - Navigate to My Chatbots (or any page that triggers API calls)
     - Capture bearer + guest_userid from API calls
-    - Capture refresh token & client_id from Kinde
     """
 
-    bearer_token, guest_userid, refresh_token, expires_at, client_id = (
-        load_auth_credentials()
-    )
+    bearer_token, guest_userid, refresh_token, expires_at, client_id = load_auth_credentials()
 
     # If credentials are valid, reuse them
-    if test_auth_credentials(bearer_token, guest_userid):
+    if bearer_token and guest_userid and test_auth_credentials(bearer_token, guest_userid):
         return bearer_token, guest_userid, refresh_token, expires_at, client_id
 
     safe_log("Launching Playwright for manual authentication…")
 
-    bearer_token = None
-    guest_userid = None
-    discovered_client_id = None
-    token_bundle = {}
+    captured = {"bearer": None, "guest": None}
+
+    def maybe_capture_from_headers(headers: dict):
+        auth = headers.get("authorization") or headers.get("Authorization")
+        if auth and auth.startswith("Bearer ") and not captured["bearer"]:
+            captured["bearer"] = auth[len("Bearer "):].strip()
+            safe_log("Captured bearer_token (API)")
+
+        guest = headers.get("x-guest-userid") or headers.get("X-Guest-Userid") or headers.get("X-Guest-UserId")
+        if guest and not captured["guest"]:
+            captured["guest"] = str(guest).strip()
+            safe_log(f"Captured guest_userid = {captured['guest']}")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        ctx = browser.new_context()
-        page = ctx.new_page()
+        # Persistent context is nice for auth work; change user_data_dir if you want it disposable.
+        context = p.chromium.launch_persistent_context(
+            user_data_dir="playwright_profile",
+            headless=False,
+            args=["--start-maximized"],
+            viewport=None,  # important: don’t force Playwright’s default viewport
+        )
 
-        def on_request(req):
-            nonlocal bearer_token, guest_userid, discovered_client_id
-            url = req.url
+        try:
+            page = context.new_page()
 
-            # CLIENT ID (Kinde)
-            if "/oauth2/auth" in url:
-                parsed = urlparse.urlparse(url)
-                q = urlparse.parse_qs(parsed.query)
-                if "client_id" in q:
-                    discovered_client_id = q["client_id"][0]
-                    safe_log(f"Captured client_id = {discovered_client_id}")
+            def on_request(req):
+                # Only look at spicychat API-ish traffic to reduce noise
+                try:
+                    host = urlparse.urlparse(req.url).netloc.lower()
+                    if "spicychat.ai" not in host:
+                        return
 
-            # ACCESS TOKEN + guest_userid from spicychat API calls
-            path = urlparse.urlparse(url).path
-            if "/v2/users/characters" in path:
-                headers = req.headers
-                if (
-                    "authorization" in headers
-                    and headers["authorization"].startswith("Bearer ")
-                ):
-                    bearer_token = headers["authorization"][7:]
-                    safe_log("Captured bearer_token (API)")
-                if "x-guest-userid" in headers:
-                    guest_userid = headers["x-guest-userid"]
-                    safe_log(f"Captured guest_userid = {guest_userid}")
+                    # If you want to narrow further, uncomment:
+                    # path = urlparse.urlparse(req.url).path
+                    # if not path.startswith("/api/") and "/v2/" not in path:
+                    #     return
 
-        def on_response(res):
-            nonlocal token_bundle
+                    maybe_capture_from_headers(req.headers)
+                except Exception:
+                    # never let event handler crash capture
+                    return
+
+            context.on("request", on_request)
+
+            page.goto("https://spicychat.ai", wait_until="domcontentloaded")
+            print("1) Log into SpicyChat (including Google if needed).")
+            print("2) Navigate to 'My Chatbots' (or any page that loads your bots).")
+            input("Press Enter when you are fully logged in and on My Chatbots...")
+
+            # Proactively trigger some network activity without relying on scrolling.
+            # Reload tends to hit APIs again once you're authenticated.
             try:
-                if "/oauth2/token" in res.url:
-                    data = res.json()
-                    token_bundle = data
-                    safe_log("Captured Kinde token bundle")
+                page.reload(wait_until="domcontentloaded")
             except Exception:
                 pass
 
-        ctx.on("request", on_request)
-        ctx.on("response", on_response)
+            deadline = time.time() + timeout_sec
+            while time.time() < deadline:
+                if captured["bearer"] and captured["guest"]:
+                    break
 
-        page.goto("https://spicychat.ai", wait_until="networkidle")
-        print("Log into SpicyChat. After logging in, navigate to My Chatbots.")
-        input("Press Enter when you are fully logged in and on My Chatbots...")
+                # Nudge the app to make requests (some SPAs only fetch when interacted with)
+                try:
+                    page.evaluate("window.scrollBy(0, 600)")
+                except Exception:
+                    pass
 
-        for _ in range(wait_rounds):
+                time.sleep(0.25)
+
+            if not captured["bearer"] or not captured["guest"]:
+                raise RuntimeError(
+                    f"Failed to capture bearer_token or guest_userid within {timeout_sec}s. "
+                    "Make sure you are on a page that loads your bots and triggers API calls."
+                )
+
+            save_auth_credentials(captured["bearer"], captured["guest"])
+            return captured["bearer"], captured["guest"], None, None, None
+
+        finally:
+            # launch_persistent_context closes browser with context.close()
             try:
-                page.wait_for_load_state("networkidle", timeout=15000)
+                context.close()
             except Exception:
-                pass  # ignore load state errors — page may already be loaded
-
-            try:
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            except Exception:
-                safe_log("Scroll skipped — page navigated during capture")
-                continue
-
-            time.sleep(0.3)
+                pass
 
 
-        ctx.close()
-        browser.close()
-
-    if not bearer_token or not guest_userid:
-        raise RuntimeError("Failed to capture bearer_token or guest_userid")
-
-    access_token = bearer_token
-    refresh = token_bundle.get("refresh_token")
-    expires = time.time() + token_bundle.get("expires_in", 3600)
-    cid = discovered_client_id
-
-    save_auth_credentials(access_token, guest_userid, refresh, expires, cid)
-
-    return access_token, guest_userid, refresh, expires, cid
 
 # ------------------ Database ------------------
 def init_db():

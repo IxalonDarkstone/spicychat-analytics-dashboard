@@ -65,48 +65,6 @@ def save_auth_credentials(
         logging.error(f"Error saving auth credentials: {e}")
 
 
-KINDE_DOMAIN = "gamma.kinde.com"
-
-
-def get_kinde_client_id():
-    """
-    Returns the Kinde client_id stored in auth_credentials.json.
-    If missing, we cannot refresh tokens → require reauth.
-    """
-    if AUTH_FILE.exists():
-        try:
-            with open(AUTH_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                cid = data.get("client_id")
-                if cid:
-                    return cid
-        except Exception as e:
-            safe_log(f"Error loading client_id: {e}")
-
-    safe_log("No Kinde client_id found. Reauth is required.")
-    return None
-
-
-def refresh_kinde_token(refresh_token, client_id):
-    if not client_id:
-        safe_log("No client_id available, cannot refresh — reauth required.")
-        return None
-
-    url = f"https://{KINDE_DOMAIN}/oauth2/token"
-    payload = {
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "client_id": client_id,
-    }
-
-    try:
-        r = requests.post(url, data=payload, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        safe_log(f"Kinde refresh failed: {e}")
-        return None
-
 
 def test_auth_credentials(bearer_token, guest_userid):
     if not bearer_token or not guest_userid:
@@ -139,48 +97,29 @@ def test_auth_credentials(bearer_token, guest_userid):
         logging.warning(f"Auth credentials test failed: {e}")
         return False
 
-
 def ensure_fresh_kinde_token():
     """
-    Ensure we have a fresh access token; refresh via Kinde when possible.
+    Legacy name kept for compatibility.
+
+    We do NOT use Kinde anymore.
+    We only ensure we have a usable SpicyChat bearer token + guest_userid.
     Returns (bearer_token, guest_userid) or (None, None) if auth is required.
     """
+    global AUTH_REQUIRED
 
-    bearer, guest, refresh_token, expires_at, client_id = load_auth_credentials()
+    bearer, guest, _refresh, _expires, _client_id = load_auth_credentials()
 
-    # Missing credentials
     if not bearer or not guest:
-        core.AUTH_REQUIRED = True
+        AUTH_REQUIRED = True
         return None, None
 
-    # No expiration known → treat as expired
-    if not expires_at:
-        core.AUTH_REQUIRED = True
+    # Optional: validate right here so scheduler/snapshot can pause cleanly
+    if not test_auth_credentials(bearer, guest):
+        AUTH_REQUIRED = True
         return None, None
 
-    # Fresh enough
-    if time.time() < (expires_at - 60):
-        return bearer, guest
-
-    # Try refreshing
-    safe_log("Token expired — attempting Kinde refresh...")
-    new_tokens = refresh_kinde_token(refresh_token, client_id)
-
-    if not new_tokens or not new_tokens.get("access_token"):
-        safe_log("Kinde refresh failed — auth required.")
-        core.AUTH_REQUIRED = True
-        return None, None
-
-    new_bearer = new_tokens["access_token"]
-    new_refresh = new_tokens.get("refresh_token", refresh_token)
-    new_expires = time.time() + new_tokens.get("expires_in", 3600)
-
-    save_auth_credentials(new_bearer, guest, new_refresh, new_expires)
-
-    core.AUTH_REQUIRED = False
-    safe_log("Kinde token refresh successful.")
-
-    return new_bearer, guest
+    AUTH_REQUIRED = False
+    return bearer, guest
 
 # ------------------ Capture auth via Playwright ------------------
 def capture_auth_credentials(wait_rounds=18):
@@ -205,8 +144,6 @@ def capture_auth_credentials(wait_rounds=18):
 
     bearer_token = None
     guest_userid = None
-    discovered_client_id = None
-    token_bundle = {}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
@@ -280,17 +217,10 @@ obs.observe(document.documentElement, { childList: true, subtree: true });
         page.add_init_script(OVERLAY_JS)
 
         def on_request(req):
-            nonlocal bearer_token, guest_userid, discovered_client_id
+            nonlocal bearer_token, guest_userid
             url = req.url
 
-            # CLIENT ID (Kinde)
-            if "/oauth2/auth" in url:
-                parsed = urlparse.urlparse(url)
-                q = urlparse.parse_qs(parsed.query)
-                if "client_id" in q:
-                    discovered_client_id = q["client_id"][0]
-                    safe_log(f"Captured client_id = {discovered_client_id}")
-
+            
             # ACCESS TOKEN + guest_userid from spicychat API calls
             path = urlparse.urlparse(url).path
             if "/v2/users/characters" in path:
@@ -306,14 +236,7 @@ obs.observe(document.documentElement, { childList: true, subtree: true });
                     safe_log(f"Captured guest_userid = {guest_userid}")
 
         def on_response(res):
-            nonlocal token_bundle
-            try:
-                if "/oauth2/token" in res.url:
-                    data = res.json()
-                    token_bundle = data
-                    safe_log("Captured Kinde token bundle")
-            except Exception:
-                pass
+            pass
 
         ctx.on("request", on_request)
         ctx.on("response", on_response)
@@ -344,10 +267,6 @@ obs.observe(document.documentElement, { childList: true, subtree: true });
         raise RuntimeError("Failed to capture bearer_token or guest_userid")
 
     access_token = bearer_token
-    refresh = token_bundle.get("refresh_token")
-    expires = time.time() + token_bundle.get("expires_in", 3600)
-    cid = discovered_client_id
 
-    save_auth_credentials(access_token, guest_userid, refresh, expires, cid)
-
-    return access_token, guest_userid, refresh, expires, cid
+    save_auth_credentials(access_token, guest_userid)
+    return access_token, guest_userid, None, None, None
