@@ -15,6 +15,9 @@ backup/*
 data/
 data/*
 
+playwright_profile/
+playwright_profile/*
+
 *.megaignore
 
 desktop.ini

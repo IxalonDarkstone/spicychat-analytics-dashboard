@@ -37,7 +37,6 @@ AUTH_REQUIRED = False
 LAST_SNAPSHOT_DATE = None
 
 
-# ------------------ Snapshot logic ------------------
 def sanitize_rows(rows):
     return [{k: r.get(k, "") for k in ALLOWED_FIELDS} for r in rows]
 
@@ -52,15 +51,15 @@ def take_snapshot(args=None, verbose=True):
     stamp = snapshot_time.strftime("%Y-%m-%d")
     safe_log(f"Starting snapshot for {stamp} in CDT")
 
-    # Auth: use existing credentials / refresh only
     bearer_token, guest_userid = ensure_fresh_kinde_token()
     if not bearer_token or not guest_userid:
         safe_log("Snapshot aborted — auth required.")
         AUTH_REQUIRED = True
         return str(DATABASE)
 
+    # Double-check (useful when recapture returns something stale)
     if not test_auth_credentials(bearer_token, guest_userid):
-        safe_log("Saved credentials invalid — marking auth required.")
+        safe_log("Credentials invalid after refresh/recapture — marking auth required.")
         AUTH_REQUIRED = True
         return str(DATABASE)
 
@@ -95,13 +94,8 @@ def take_snapshot(args=None, verbose=True):
         created_at = get_created_at(d)
         if created_at:
             try:
-                created_at = (
-                    pd.Timestamp(created_at, tz="UTC")
-                    .tz_convert(CDT)
-                    .isoformat()
-                )
+                created_at = pd.Timestamp(created_at, tz="UTC").tz_convert(CDT).isoformat()
             except Exception:
-                # If it's already in a different format, keep as-is
                 pass
 
         row = {
@@ -116,14 +110,12 @@ def take_snapshot(args=None, verbose=True):
         }
 
         if bot_id in seen:
-            logging.debug(f"Skipping duplicate bot_id: {bot_id}")
             continue
 
         seen.add(bot_id)
         rows.append(row)
 
     rows_clean = sanitize_rows(rows)
-    logging.debug(f"Sanitized rows: {len(rows_clean)}")
 
     # Write to DB
     with sqlite3.connect(DATABASE) as conn:
@@ -160,11 +152,8 @@ def take_snapshot(args=None, verbose=True):
     # Refresh Typesense trending cache (top 480)
     try:
         safe_log("Refreshing Typesense trending cache (top 480 bots)")
-        ts_map = fetch_typesense_top_bots(
-            max_pages=10, use_cache=False, filter_female_nsfw=True
-        )
+        ts_map = fetch_typesense_top_bots(max_pages=10, use_cache=False, filter_female_nsfw=True)
         if not isinstance(ts_map, dict):
-            safe_log("Typesense refresh failed — got invalid ts_map")
             ts_map = {}
         safe_log(f"Typesense trending cache updated successfully ({len(ts_map)} entries)")
     except Exception as e:

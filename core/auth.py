@@ -1,55 +1,57 @@
-# core.py
-import os
-import sys
-import re
-import time
-import logging
-import requests
 import json
-from pathlib import Path
-from datetime import datetime, timedelta
-import sqlite3
-import numpy as np
-import pandas as pd
-import pytz
-import threading
-from playwright.sync_api import sync_playwright
+import logging
+import time
 import urllib.parse as urlparse
-from .config import *
+from pathlib import Path
+
+import requests
+from playwright.sync_api import sync_playwright
+
+from .config import AUTH_FILE, API_URL, MY_BOTS_URL
 from .logging_utils import safe_log
 from .fs_utils import ensure_dirs
-import core
+import threading
+from .logging_utils import safe_log
+AUTH_CAPTURE_LOCK = threading.Lock()
 
-# ------------------ Auth & token management ------------------
+# Persisted browser profile for cookies/localStorage
+PROFILE_DIR = Path("playwright_profile")
+
+# If you use this flag in UI routes, you can import it.
+AUTH_REQUIRED = False
+
+
 def load_auth_credentials():
     """
     Returns:
         (bearer_token, guest_userid, refresh_token, expires_at, client_id)
+
+    We keep the 5-tuple for backward compatibility, but only the first two matter now.
     """
+    ensure_dirs()
     if AUTH_FILE.exists():
         try:
             with open(AUTH_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return (
-                    data.get("bearer_token"),
-                    data.get("guest_userid"),
-                    data.get("refresh_token"),
-                    data.get("expires_at"),
-                    data.get("client_id"),
-                )
+                data = json.load(f) or {}
+            return (
+                data.get("bearer_token"),
+                data.get("guest_userid"),
+                data.get("refresh_token"),
+                data.get("expires_at"),
+                data.get("client_id"),
+            )
         except Exception as e:
             logging.warning(f"Error loading auth credentials: {e}")
-
     return None, None, None, None, None
 
 
-def save_auth_credentials(
-    bearer_token,
-    guest_userid,
-    refresh_token=None,
-    expires_at=None,
-    client_id=None,
-):
+def save_auth_credentials(bearer_token, guest_userid, refresh_token=None, expires_at=None, client_id=None):
+    """
+    Writes auth_credentials.json.
+
+    We still write the extra keys (as None) so older code that expects them won't break.
+    """
+    ensure_dirs()
     try:
         data = {
             "bearer_token": bearer_token,
@@ -65,10 +67,13 @@ def save_auth_credentials(
         logging.error(f"Error saving auth credentials: {e}")
 
 
-
-def test_auth_credentials(bearer_token, guest_userid):
+def test_auth_credentials(bearer_token, guest_userid) -> bool:
+    """
+    Validates current credentials by calling the API you already use for snapshots.
+    """
     if not bearer_token or not guest_userid:
         return False
+
     headers = {
         "Authorization": f"Bearer {bearer_token}",
         "User-Agent": (
@@ -84,15 +89,17 @@ def test_auth_credentials(bearer_token, guest_userid):
         "x-country": "US",
         "x-guest-userid": guest_userid,
     }
+
     try:
-        response = requests.get(API_URL, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        if isinstance(data, (dict, list)) and data:
+        resp = requests.get(API_URL, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        ok = isinstance(data, (dict, list)) and bool(data)
+        if ok:
             safe_log("Existing auth credentials are valid")
-            return True
-        logging.warning("API response is empty or invalid")
-        return False
+        else:
+            logging.warning("API response is empty or invalid")
+        return ok
     except requests.exceptions.RequestException as e:
         logging.warning(f"Auth credentials test failed: {e}")
         return False
@@ -103,170 +110,288 @@ def ensure_fresh_kinde_token():
 
     We do NOT use Kinde anymore.
     We only ensure we have a usable SpicyChat bearer token + guest_userid.
-    Returns (bearer_token, guest_userid) or (None, None) if auth is required.
+
+    Behavior:
+      1) If saved bearer+guest is valid -> return it.
+      2) Else try auto recapture using persisted Playwright profile (headless).
+      3) Else try auto recapture headful (can surface login UI if truly expired).
+      4) Else return (None, None) and set AUTH_REQUIRED=True
     """
     global AUTH_REQUIRED
 
-    bearer, guest, _refresh, _expires, _client_id = load_auth_credentials()
+    bearer, guest, _r, _e, _c = load_auth_credentials()
+    if bearer and guest and test_auth_credentials(bearer, guest):
+        AUTH_REQUIRED = False
+        return bearer, guest
 
-    if not bearer or not guest:
-        AUTH_REQUIRED = True
+    # Silent attempt
+    new_bearer, new_guest = _recapture_token_from_profile(timeout_sec=60, headless=True)
+    if new_bearer and new_guest and test_auth_credentials(new_bearer, new_guest):
+        save_auth_credentials(new_bearer, new_guest)
+        AUTH_REQUIRED = False
+        return new_bearer, new_guest
+
+    # Headful fallback
+    new_bearer, new_guest = _recapture_token_from_profile(timeout_sec=120, headless=False)
+    if new_bearer and new_guest and test_auth_credentials(new_bearer, new_guest):
+        save_auth_credentials(new_bearer, new_guest)
+        AUTH_REQUIRED = False
+        return new_bearer, new_guest
+
+    AUTH_REQUIRED = True
+    return None, None
+
+
+def _recapture_token_from_profile(timeout_sec: int = 60, headless: bool = True):
+    """
+    Uses persisted cookies/localStorage to silently regain a fresh Bearer token.
+    Returns (bearer, guest) or (None, None).
+    """
+    
+    if not PROFILE_DIR.exists():
+        safe_log("[Auth] No Playwright profile found; headless recapture cannot work until you log in once interactively.")
         return None, None
 
-    # Optional: validate right here so scheduler/snapshot can pause cleanly
-    if not test_auth_credentials(bearer, guest):
-        AUTH_REQUIRED = True
-        return None, None
+    captured = {"bearer": None, "guest": None}
 
-    AUTH_REQUIRED = False
-    return bearer, guest
+    def maybe_capture(headers: dict):
+        auth = headers.get("authorization") or headers.get("Authorization")
+        if auth and auth.startswith("Bearer ") and not captured["bearer"]:
+            captured["bearer"] = auth[len("Bearer "):].strip()
 
-# ------------------ Capture auth via Playwright ------------------
-def capture_auth_credentials(wait_rounds=18):
-    """
-    Manual auth capture:
-    - Launch browser
-    - User logs in (including Google)
-    - Navigate to My Chatbots
-    - Capture bearer + guest_userid from API calls
-    - Capture refresh token & client_id from Kinde
-    """
+        guest = (
+            headers.get("x-guest-userid")
+            or headers.get("X-Guest-Userid")
+            or headers.get("X-Guest-UserId")
+        )
+        if guest and not captured["guest"]:
+            captured["guest"] = str(guest).strip()
 
-    bearer_token, guest_userid, refresh_token, expires_at, client_id = (
-        load_auth_credentials()
-    )
+    def is_relevant_host(host: str) -> bool:
+        host = (host or "").lower()
+        return (
+            "spicychat.ai" in host
+            or host.endswith("nd-api.com")
+            or "nd-api.com" in host
+        )
 
-    # If credentials are valid, reuse them
-    if test_auth_credentials(bearer_token, guest_userid):
-        return bearer_token, guest_userid, refresh_token, expires_at, client_id
-
-    safe_log("Launching Playwright for manual authentication…")
-
-    bearer_token = None
-    guest_userid = None
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        ctx = browser.new_context(no_viewport=True)
-        OVERLAY_JS = r"""
-(() => {
-function ensureOverlay() {
-    if (document.getElementById("sa-auth-overlay")) return;
+        ctx = p.chromium.launch_persistent_context(
+            user_data_dir=str(PROFILE_DIR),
+            headless=headless,
+            args=["--start-maximized"],
+            viewport=None,
+        )
+        try:
+            def on_request(req):
+                try:
+                    u = urlparse.urlparse(req.url)
+                    host = (u.netloc or "").lower()
+                    if not is_relevant_host(host):
+                        return
+                    maybe_capture(req.headers)
+                except Exception:
+                    return
 
-    const box = document.createElement("div");
-    box.id = "sa-auth-overlay";
-    box.style.cssText = `
-    position: fixed;
-    top: 14px;
-    left: 14px;
-    z-index: 2147483647;
-    width: 420px;
-    background: rgba(18,18,20,0.96);
-    color: #eee;
-    border: 1px solid rgba(74,168,255,0.65);
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
-    padding: 12px 14px;
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    font-size: 14px;
-    line-height: 1.35;
-    `;
+            ctx.on("request", on_request)
 
-    box.innerHTML = `
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <div style="font-weight:800; color:#4aa8ff;">🔐 SpicyChat Auth Capture</div>
-        <button id="sa-auth-overlay-hide" style="
-        background:#4aa8ff; color:#07121f; border:none;
-        padding:6px 10px; border-radius:8px; cursor:pointer;
-        font-weight:700;
-        ">Hide</button>
-    </div>
+            page = ctx.new_page()
+            page.goto(MY_BOTS_URL, wait_until="domcontentloaded")
 
-    <div style="margin-top:8px; opacity:0.95;">
-        <ol style="margin:8px 0 0 18px; padding:0;">
-        <li>Log in (email + code) if prompted.</li>
-        <li>Navigate to <b>My Creations</b> / <b>My Chatbots</b>.</li>
-        <li>Leave this window open until the app reports success.</li>
-        </ol>
-    </div>
-
-    <div id="sa-auth-overlay-status" style="margin-top:10px; font-size:13px; opacity:0.85;">
-        Tip: if this window opened behind apps, press <b>Alt+Tab</b> and select it.
-    </div>
-    `;
-
-    document.documentElement.appendChild(box);
-
-    const hideBtn = document.getElementById("sa-auth-overlay-hide");
-    if (hideBtn) {
-    hideBtn.addEventListener("click", () => {
-        box.style.display = "none";
-    });
-    }
-}
-
-// Ensure on initial load + SPAs that swap content.
-ensureOverlay();
-const obs = new MutationObserver(() => ensureOverlay());
-obs.observe(document.documentElement, { childList: true, subtree: true });
-})();
-"""
-
-        # In capture_auth_credentials():
-        page = ctx.new_page()
-        page.add_init_script(OVERLAY_JS)
-
-        def on_request(req):
-            nonlocal bearer_token, guest_userid
-            url = req.url
-
-            
-            # ACCESS TOKEN + guest_userid from spicychat API calls
-            path = urlparse.urlparse(url).path
-            if "/v2/users/characters" in path:
-                headers = req.headers
-                if (
-                    "authorization" in headers
-                    and headers["authorization"].startswith("Bearer ")
-                ):
-                    bearer_token = headers["authorization"][7:]
-                    safe_log("Captured bearer_token (API)")
-                if "x-guest-userid" in headers:
-                    guest_userid = headers["x-guest-userid"]
-                    safe_log(f"Captured guest_userid = {guest_userid}")
-
-        def on_response(res):
-            pass
-
-        ctx.on("request", on_request)
-        ctx.on("response", on_response)
-
-        page.goto("https://spicychat.ai", wait_until="networkidle")
-        print("Log into SpicyChat. After logging in, navigate to My Chatbots.")
-        input("Press Enter when you are fully logged in and on My Chatbots...")
-
-        for _ in range(wait_rounds):
+            # Nudge requests: reload tends to trigger the API calls that carry Authorization
             try:
-                page.wait_for_load_state("networkidle", timeout=15000)
+                page.reload(wait_until="domcontentloaded")
             except Exception:
-                pass  # ignore load state errors — page may already be loaded
+                pass
+
+            deadline = time.time() + timeout_sec
+            last_reload = 0.0
+
+            while time.time() < deadline:
+                if captured["bearer"] and captured["guest"]:
+                    safe_log("[Auth] Headless token recapture successful.")
+                    return captured["bearer"], captured["guest"]
+
+                # periodic reload to force fresh API calls
+                now = time.time()
+                if now - last_reload > 4.0:
+                    last_reload = now
+                    try:
+                        page.reload(wait_until="domcontentloaded")
+                    except Exception:
+                        pass
+
+                time.sleep(0.2)
+
+            return None, None
+        finally:
+            try:
+                ctx.close()
+            except Exception:
+                pass
+
+
+def capture_auth_credentials(timeout_sec: int = 300):
+    """
+    Interactive capture (visible browser), Kinde email+code login supported:
+    - NO console input
+    - NEVER reloads while user is on Kinde login pages
+    - Waits for user to return to SpicyChat (MY_BOTS_URL), then forces a few nudges to trigger API calls
+    - Captures from both request + response.request headers for reliability
+    """
+    # Prevent concurrent auth launches with the same persistent profile
+    if not AUTH_CAPTURE_LOCK.acquire(blocking=False):
+        raise RuntimeError("Auth capture already running (lock held). Try again in a moment.")
+
+    try:
+        bearer_token, guest_userid, refresh_token, expires_at, client_id = load_auth_credentials()
+        if bearer_token and guest_userid and test_auth_credentials(bearer_token, guest_userid):
+            return bearer_token, guest_userid, refresh_token, expires_at, client_id
+
+        safe_log("[Auth] Launching browser for email login (Kinde). Complete login; capture will happen automatically on My Chatbots…")
+
+        captured = {"bearer": None, "guest": None}
+        last_relevant = {"url": ""}
+
+        def maybe_capture(headers: dict, note: str = ""):
+            auth = headers.get("authorization") or headers.get("Authorization")
+            if auth and auth.startswith("Bearer ") and not captured["bearer"]:
+                captured["bearer"] = auth[len("Bearer "):].strip()
+                safe_log(f"[Auth] Captured bearer token{(' via ' + note) if note else ''}")
+
+            guest = (
+                headers.get("x-guest-userid")
+                or headers.get("X-Guest-Userid")
+                or headers.get("X-Guest-UserId")
+            )
+            if guest and not captured["guest"]:
+                captured["guest"] = str(guest).strip()
+                safe_log(f"[Auth] Captured guest_userid={captured['guest']}{(' via ' + note) if note else ''}")
+
+        def is_relevant_host(host: str) -> bool:
+            host = (host or "").lower()
+            return ("nd-api.com" in host) or ("spicychat.ai" in host)
+
+        def is_kinde_url(url: str) -> bool:
+            u = (url or "").lower()
+            # Kinde hosted login commonly includes kinde.com or kinde.* domains.
+            # Keep it broad so it works even if their hosted domain changes.
+            return ("kinde" in u) and (("kinde.com" in u) or ("kinde." in u) or ("auth" in u) or ("login" in u))
+
+        def is_spicychat(url: str) -> bool:
+            return "spicychat.ai" in (url or "").lower()
+
+        def is_on_my_bots(url: str) -> bool:
+            u = (url or "").lower()
+            # Prefer strict match to your actual MY_BOTS_URL when possible
+            return is_spicychat(u) and ("my" in u and "bot" in u or u.rstrip("/") == MY_BOTS_URL.rstrip("/"))
+
+        with sync_playwright() as p:
+            ctx = p.chromium.launch_persistent_context(
+                user_data_dir=str(PROFILE_DIR),
+                headless=False,
+                args=["--start-maximized"],
+                viewport=None,
+            )
 
             try:
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            except Exception:
-                safe_log("Scroll skipped — page navigated during capture")
-                continue
+                def on_request(req):
+                    try:
+                        u = urlparse.urlparse(req.url)
+                        if not is_relevant_host(u.netloc):
+                            return
+                        last_relevant["url"] = req.url
+                        maybe_capture(req.headers, note="request")
+                    except Exception:
+                        pass
 
-            time.sleep(0.3)
+                def on_response(resp):
+                    try:
+                        req = resp.request
+                        u = urlparse.urlparse(req.url)
+                        if not is_relevant_host(u.netloc):
+                            return
+                        last_relevant["url"] = req.url
+                        maybe_capture(req.headers, note="response.request")
+                    except Exception:
+                        pass
 
+                ctx.on("request", on_request)
+                ctx.on("response", on_response)
 
-        ctx.close()
-        browser.close()
+                page = ctx.new_page()
+                page.goto(MY_BOTS_URL, wait_until="domcontentloaded")
 
-    if not bearer_token or not guest_userid:
-        raise RuntimeError("Failed to capture bearer_token or guest_userid")
+                deadline = time.time() + timeout_sec
+                last_status = 0.0
+                nudges_started = False
+                nudge_count = 0
 
-    access_token = bearer_token
+                while time.time() < deadline:
+                    if captured["bearer"] and captured["guest"]:
+                        break
 
-    save_auth_credentials(access_token, guest_userid)
-    return access_token, guest_userid, None, None, None
+                    try:
+                        cur_url = page.url or ""
+                    except Exception:
+                        cur_url = ""
+
+                    now = time.time()
+                    if now - last_status > 8.0:
+                        last_status = now
+                        safe_log(f"[Auth] Waiting… url={cur_url[:120]} last_relevant={last_relevant['url'][:120]}")
+
+                    # If user is on Kinde login pages, DO NOT interfere at all.
+                    if is_kinde_url(cur_url):
+                        time.sleep(0.25)
+                        continue
+
+                    # If not on SpicyChat yet (still transitioning), wait.
+                    if not is_spicychat(cur_url):
+                        time.sleep(0.25)
+                        continue
+
+                    # Once we're back on SpicyChat, force getting to My Chatbots.
+                    if not is_on_my_bots(cur_url):
+                        try:
+                            page.goto(MY_BOTS_URL, wait_until="domcontentloaded")
+                        except Exception:
+                            pass
+                        time.sleep(0.25)
+                        continue
+
+                    # Now we are on/near MY_BOTS_URL — start a few gentle nudges to trigger the API call
+                    if not nudges_started:
+                        nudges_started = True
+                        safe_log("[Auth] Back on My Chatbots. Triggering API calls to capture token…")
+
+                    # Do a limited number of nudges (avoid “refreshing constantly”)
+                    if nudge_count < 6:
+                        nudge_count += 1
+                        try:
+                            page.reload(wait_until="domcontentloaded")
+                        except Exception:
+                            pass
+
+                    time.sleep(0.6)
+
+                if not captured["bearer"] or not captured["guest"]:
+                    raise RuntimeError(
+                        "Timed out waiting for Bearer token. "
+                        "Login may have succeeded, but no nd-api.com request with Authorization was observed."
+                    )
+
+            finally:
+                try:
+                    ctx.close()
+                except Exception:
+                    pass
+
+        save_auth_credentials(captured["bearer"], captured["guest"])
+        safe_log("[Auth] Interactive token capture successful.")
+        return captured["bearer"], captured["guest"], None, None, None
+
+    finally:
+        AUTH_CAPTURE_LOCK.release()

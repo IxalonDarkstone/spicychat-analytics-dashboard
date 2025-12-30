@@ -334,11 +334,40 @@ def register_dashboard_routes(app):
             "tf_total": tf_total,
             "tf_bots": tf_bots
         })
+        
+    from flask import jsonify
+
+    @app.route("/auth-test-ui", methods=["GET", "POST"])
+    def auth_test_ui_route():
+        """
+        Deletes auth_credentials.json then performs NON-headless recapture.
+        Opens a visible browser window; you log in; route returns JSON when captured.
+        """
+        from core.auth import AUTH_FILE, capture_auth_credentials
+
+        # delete cached creds to force recapture
+        try:
+            if AUTH_FILE.exists():
+                AUTH_FILE.unlink()
+                safe_log("[AuthTestUI] Deleted auth_credentials.json — forcing NON-headless recapture.")
+            else:
+                safe_log("[AuthTestUI] No auth_credentials.json found — forcing NON-headless recapture anyway.")
+        except Exception as e:
+            safe_log(f"[AuthTestUI] Failed to delete auth file: {e}")
+
+        try:
+            bearer, guest, *_ = capture_auth_credentials(timeout_sec=240)
+            safe_log("[AuthTestUI] Non-headless token recapture successful.")
+            return jsonify({"ok": True, "guest_userid": guest})
+        except Exception as e:
+            safe_log(f"[AuthTestUI] Non-headless token recapture FAILED: {e}")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
 
     @app.route("/reauth", methods=["POST"])
     def reauth():
-        from core.auth import capture_auth_credentials   # <-- change this
-        from core import save_auth_credentials, take_snapshot, AUTH_FILE
+        from core.auth import capture_auth_credentials, load_auth_credentials, save_auth_credentials, test_auth_credentials
+        from core import take_snapshot, AUTH_FILE
         import core
         import os
 

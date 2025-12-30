@@ -9,14 +9,13 @@ from core import (
     setup_logging,
     ensure_dirs,
     init_db,
-    load_auth_credentials,
-    test_auth_credentials,
     take_snapshot,
     snapshot_scheduler,
     AUTH_REQUIRED,
     SNAPSHOT_THREAD_STARTED,
     safe_log,
 )
+from core.auth import load_auth_credentials, save_auth_credentials, test_auth_credentials
 
 from routes_dashboard import register_dashboard_routes
 from routes_bots import register_bot_routes
