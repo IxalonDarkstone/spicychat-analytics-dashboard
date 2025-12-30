@@ -23,3 +23,7 @@ playwright_profile/*
 desktop.ini
 
 __pycache__/
+__pycache__/*
+
+.git/
+.git/*
