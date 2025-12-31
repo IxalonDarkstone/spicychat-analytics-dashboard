@@ -348,13 +348,6 @@
     <header class="header">
       <div class="header-left">
         <h1>Author Tracker</h1>
-        <div class="subheader">
-          {% if latest_stamp %}
-            Snapshot: <span class="stat-value">{{ latest_stamp }}</span>
-          {% else %}
-            No snapshots yet
-          {% endif %}
-        </div>
       </div>
 
       <div class="header-right">
@@ -368,7 +361,7 @@
       
         <div class="header-actions" style="display:flex; gap:10px; align-items:center;">
           <a href="{{ url_for('index') }}" class="primary-button">← Dashboard</a>
-          <a href="/global-trending" class="primary-button">Global Trending</a>
+          <a href="{{ url_for('global_trending') }}" class="primary-button">Global Trending</a>
         </div>
       </div>
     </header>

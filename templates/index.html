@@ -57,11 +57,11 @@
 
             <div class="header-actions" style="display:flex; gap:10px; align-items:center;">
                 <button id="authRefreshButton" class="primary-button">Auth Refresh</button>                
-                <form action="/take-snapshot" method="post" class="action-form">
+                <form action="{{ url_for('take_snapshot_route') }}" method="post" class="action-form">
                     <button type="submit" class="primary-button">Take Snapshot</button>
                 </form>
-                <a href="/global-trending" class="primary-button">Global Trending</a>
-                <a href="/authors" class="primary-button" style="position:relative;">
+                <a href="{{ url_for('global_trending') }}" class="primary-button">Global Trending</a>
+                <a href="{{ url_for('authors_page') }}" class="primary-button" style="position:relative;">
                     Favorite Creators
                     <span id="newAuthorsBadge"
                           style="display:none; margin-left:8px; padding:2px 8px; border-radius:999px;
@@ -190,7 +190,6 @@
     </div>
     
 
-
     <!-- Bots section -->
     <section class="bots-section">
         <h2>Your Bots</h2>
@@ -244,7 +243,6 @@
         </div>
         
         
-
         {% include 'bots_table.html' %}
     </section>
 
@@ -252,7 +250,7 @@
 
 <script>
     async function fetchTotals(timeframe) {
-        const res = await fetch(`/api/totals?timeframe=${encodeURIComponent(timeframe)}`);
+        const res = await fetch(`{{ url_for('api_totals') }}?timeframe=${encodeURIComponent(timeframe)}`);
         return res.json();
     }
     
@@ -387,7 +385,7 @@
 </script>
 <script>
     async function checkStatus() {
-        const res = await fetch("/api/snapshot_status");
+        const res = await fetch("{{ url_for('api_snapshot_status') }}");
         const status = await res.json();
     
         const banner = document.getElementById("authWarning");
@@ -403,7 +401,7 @@
     // Auto-refresh at top of hour when auth is OK
     function scheduleDashboardRefresh() {
         setInterval(async () => {
-            const res = await fetch("/api/snapshot_status");
+            const res = await fetch("{{ url_for('api_snapshot_status') }}");
             const status = await res.json();
 
             if (!status.auth_required) {
@@ -464,7 +462,7 @@
 <!-- KEEP THIS ONE — the correct single handler -->
 <script>
     document.getElementById("authButton").addEventListener("click", async () => {
-        const res = await fetch("/reauth", { method: "POST" });
+        const res = await fetch("{{ url_for('reauth') }}", { method: "POST" });
         const data = await res.json();
     
         if (data.success) {
@@ -481,7 +479,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!btn) return;
 
     btn.addEventListener("click", async () => {
-        const res = await fetch("/reauth", { method: "POST" });
+        const res = await fetch("{{ url_for('reauth') }}", { method: "POST" });
         let data = null;
 
         try {
@@ -529,7 +527,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
         try {
         const seenParam = encodeURIComponent(JSON.stringify(seenMap));
-        const res = await fetch(`/api/author-new-counts?seen=${seenParam}`);
+        const res = await fetch(`{{ url_for('api_author_new_counts') }}?seen=${seenParam}`);
         const data = await res.json();
     
         const n = data.total || 0;

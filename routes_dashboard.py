@@ -119,20 +119,7 @@ def register_dashboard_routes(app):
             for _, row in totals.iterrows()
         ]
 
-        try:
-            bots, totals_list, total_messages, latest_date_from_bots = get_bots_data(
-                timeframe=timeframe,
-                sort_by=sort_by,
-                sort_asc=sort_asc,
-                created_after=created_after,
-                tags=tags,
-                q=q,
-            )
-            total_bots = len(bots)
-        except Exception as e:
-            import logging
-            logging.error(f"Error in get_bots_data: {e}")
-            bots, totals_list, total_messages, total_bots, latest_date_from_bots = [], [], 0, 0, None
+        # Removed duplicated try block for bots (already computed above)
 
         safe_log(f"Rendering index for {latest} with {len(bots)} bots")
         
@@ -208,7 +195,7 @@ def register_dashboard_routes(app):
 
     @app.route("/take-snapshot", methods=["POST"])
     def take_snapshot_route():
-        import core
+        from core import take_snapshot, AUTH_REQUIRED
 
         safe_log("Manual snapshot triggered from dashboard.")
 
@@ -222,9 +209,9 @@ def register_dashboard_routes(app):
         }
 
         try:
-            core.take_snapshot({"manual": True}, verbose=True)
+            take_snapshot({"manual": True}, verbose=True)
 
-            if core.AUTH_REQUIRED:
+            if AUTH_REQUIRED:
                 safe_log("Manual snapshot aborted — auth required.")
             else:
                 safe_log("Manual snapshot completed successfully.")
@@ -237,20 +224,19 @@ def register_dashboard_routes(app):
 
     @app.route("/api/snapshot_status")
     def api_snapshot_status():
-        import core
-        return {
-            "auth_required": core.AUTH_REQUIRED,
-            "snapshot_paused": core.AUTH_REQUIRED
-        }
+        from core import AUTH_REQUIRED
+        return {"auth_required": AUTH_REQUIRED, "snapshot_paused": AUTH_REQUIRED}
 
     @app.route("/api/totals")
     def api_totals():
+        from flask import jsonify
         import sqlite3
 
         timeframe = request.args.get("timeframe", "7day")
         init_db()  # ensure tables exist
 
         df_raw = load_history_df()
+
         dfc = compute_deltas(df_raw, timeframe)
 
         if dfc.empty:
@@ -262,7 +248,7 @@ def register_dashboard_routes(app):
             .sort_values("date")
         )
 
-# --- Load top480 and top240 counts for *your bots* from bot_rank_history ---
+        # --- Load top480 and top240 counts for *your bots* from bot_rank_history ---
         conn = sqlite3.connect(DATABASE)
         cur = conn.cursor()
 

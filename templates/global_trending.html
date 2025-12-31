@@ -228,7 +228,7 @@
           
         <div class="header-actions" style="display:flex; gap:10px; align-items:center;">
             <a href="{{ url_for('index') }}" class="primary-button">← Dashboard</a>
-            <a href="/authors" class="primary-button">Favorite Creators</a>
+            <a href="{{ url_for('authors_page') }}" class="primary-button">Favorite Creators</a>
         </div>
           
     </header>
@@ -359,6 +359,23 @@
                             {{ b.creator_username }}
                         </a>
                     </div>
+                    
+                    {% set creator = (b.creator_username or '')|trim %}
+                    {% if creator %}
+                      {% if tracked_authors is defined and creator in tracked_authors %}
+                        <button class="primary-button" type="button"
+                                style="margin-top:8px; opacity:0.65; cursor:default;" disabled>
+                          ✓ Favorited
+                        </button>
+                      {% else %}
+                        <form method="post" action="{{ url_for('favorite_creator_from_global') }}"
+                              style="margin-top:8px;">
+                          <input type="hidden" name="author" value="{{ creator }}">
+                          <input type="hidden" name="return_url" value="{{ request.full_path }}">
+                          <button class="primary-button" type="submit">+ Favorite Creator</button>
+                        </form>
+                      {% endif %}
+                    {% endif %}
 
                     {% if b.tags %}
                     <div class="bot-tags">

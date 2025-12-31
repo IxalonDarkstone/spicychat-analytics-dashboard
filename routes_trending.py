@@ -1,5 +1,5 @@
 # routes_trending.py
-from flask import render_template, request
+from flask import render_template, request, redirect, url_for
 from core import (
     fetch_typesense_top_bots,
     AVATAR_BASE_URL,
@@ -8,6 +8,9 @@ from core import (
     get_last_snapshot_time,
 )
 import pandas as pd
+from datetime import datetime
+from core import ensure_author_tables
+from core.authors_service import add_tracked_author, get_tracked_authors, refresh_single_author_snapshot
 
 def register_trending_routes(app):
     @app.route("/trending")
@@ -134,6 +137,37 @@ def register_trending_routes(app):
             my_bots_count=my_bots_count,
             last_snapshot=get_last_snapshot_time(),
         )
+    def _latest_stamp_or_today() -> str:
+        """Match Authors page behavior: use latest snapshot date if present, else today."""
+        try:
+            df = load_history_df()
+            if not df.empty and "date" in df.columns:
+                return str(sorted(df["date"].unique(), reverse=True)[0])
+        except Exception:
+            pass
+        return datetime.now().strftime("%Y-%m-%d")
+
+    @app.route("/global-trending/favorite-creator", methods=["POST"])
+    def favorite_creator_from_global():
+        author = (request.form.get("author") or "").strip()
+        return_url = (request.form.get("return_url") or "").strip()
+
+        if not author:
+            return redirect(return_url or url_for("global_trending"))
+
+        ensure_author_tables()
+
+        # Idempotent: add_tracked_author should safely handle duplicates
+        add_tracked_author(author)
+
+        # Same “refresh now” behavior you already do when adding an author on the Authors page
+        try:
+            stamp = _latest_stamp_or_today()
+            refresh_single_author_snapshot(stamp, author)
+        except Exception as e:
+            safe_log(f"Global Trending: auto-refresh failed for {author}: {e}")
+
+        return redirect(return_url or url_for("global_trending"))
 
     @app.route("/global-trending")
     def global_trending():
@@ -302,4 +336,5 @@ def register_trending_routes(app):
             ts_total=len(ts_map_filtered),
             filtered_total=len(ts_list),
             last_snapshot=get_last_snapshot_time(),
+            tracked_authors = set(get_tracked_authors() or []),
         )

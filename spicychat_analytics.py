@@ -21,6 +21,8 @@ from routes_dashboard import register_dashboard_routes
 from routes_bots import register_bot_routes
 from routes_trending import register_trending_routes
 from routes_authors import register_author_routes
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -33,6 +35,8 @@ def create_app():
     register_author_routes(app)   # ✅ ADD THIS
     return app
 
+# Add this (x_prefix=1 tells it to handle the prefix header)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 if __name__ == "__main__":
     setup_logging()
