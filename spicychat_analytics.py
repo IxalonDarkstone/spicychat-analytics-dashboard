@@ -125,5 +125,5 @@ if __name__ == "__main__":
     #  RUN FLASK SERVER
     # --------------------------------------------------------
     safe_log(f"Starting server on {args.host}:{args.port}")
-    app.run(host=args.host, port=args.port)
+    app.run(host=args.host, port=args.port, debug=True)
 

@@ -20,7 +20,7 @@ from core import (
     get_last_snapshot_time,
 )
 from core.config import DATABASE
-from core.authors_service import mark_bot_seen, mark_all_seen, fetch_typesense_bot_ids_by_author
+from core.authors_service import mark_bot_seen, mark_all_seen, fetch_typesense_bot_ids_by_author, get_bot_greeting
 
 ALL_KEY = "__ALL__"
 
@@ -73,9 +73,11 @@ def _filter_by_query(bots: List[dict], q: str) -> List[dict]:
         title = (b.get("title") or "").lower()
         tags = " ".join([str(t) for t in (b.get("tags") or [])]).lower()
         author = (b.get("author") or "").lower()
-        if q in f"{name} {title} {tags} {author}":
+        greeting = (b.get("greeting") or "").lower()   # ✅ NEW
+        if q in f"{name} {title} {tags} {author} {greeting}":
             out.append(b)
     return out
+
 
 
 def _tag_counts(bots: List[dict]) -> List[dict]:
@@ -123,8 +125,8 @@ def _sort_bots(bots: List[dict], sort_field: str, order: str) -> Tuple[str, str]
     if sort_field == "name":
         bots.sort(key=lambda b: (b.get("name") or "").lower(), reverse=reverse)
     else:
-        # date == first_seen_at. Empty string sorts last in desc.
-        bots.sort(key=lambda b: (b.get("first_seen_at") or ""), reverse=reverse)
+        # date == created_at. Empty string sorts last in desc.
+        bots.sort(key=lambda b: (b.get("created_at") or ""), reverse=reverse)
 
     # Primary pin: unseen/new at the top
     bots.sort(key=lambda b: 0 if b.get("is_new") else 1)
@@ -213,6 +215,11 @@ def register_author_routes(app):
             last_snapshot=get_last_snapshot_time(),
         )
 
+    @app.get("/api/bot-greeting/<bot_id>")
+    def api_bot_greeting(bot_id):
+        text = get_bot_greeting(bot_id)
+        return {"bot_id": bot_id, "greeting": text or ""}
+
     @app.get("/go-bot/<bot_id>")
     def go_bot(bot_id):
         mark_bot_seen(bot_id)
@@ -289,7 +296,7 @@ def register_author_routes(app):
     def api_author_new_counts():
         """
         DB-backed unseen counts:
-          unseen = first_seen_at IS NOT NULL AND seen_at IS NULL
+          unseen = (seen_at IS NULL OR seen_at = '')
         """
         ensure_author_tables()
 
@@ -297,7 +304,7 @@ def register_author_routes(app):
         cur = conn.cursor()
         cur.execute("""
             SELECT author,
-                   SUM(CASE WHEN first_seen_at IS NOT NULL AND (seen_at IS NULL OR seen_at = '') THEN 1 ELSE 0 END) AS unseen
+                SUM(CASE WHEN (seen_at IS NULL OR seen_at = '') THEN 1 ELSE 0 END) AS unseen
             FROM author_bot_map
             GROUP BY author
         """)

@@ -339,6 +339,73 @@
       .author-search{ min-width: 0; flex: 1 1 100%; }
       .right-actions{ margin-left:0; width:100%; justify-content:flex-start; }
     }
+    .modal-backdrop{
+      position:fixed;
+      inset:0;
+      background: rgba(0,0,0,0.65);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index: 9999;
+      padding: 24px;
+    }
+    .modal-card{
+      width: min(920px, 100%);
+      max-height: min(80vh, 900px);
+      overflow: hidden;
+      background: var(--card-color);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+      display:flex;
+      flex-direction:column;
+    }
+    .modal-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .modal-title{ font-weight: 700; }
+    .modal-close{
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-color);
+      cursor: pointer;
+      font-size: 22px;
+      line-height: 1;
+    }
+    .modal-meta{
+      padding: 8px 14px;
+      font-size: 12px;
+      opacity: 0.8;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .modal-body{
+      padding: 14px;
+      overflow:auto;
+      line-height: 1.45;
+    }
+    .modal-body pre{
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 10px;
+      overflow:auto;
+    }
+    .modal-body code{
+      background: rgba(255,255,255,0.05);
+      padding: 1px 4px;
+      border-radius: 6px;
+    }
+    
   </style>
 </head>
 
@@ -506,7 +573,7 @@
             {% for b in bots %}
               <div class="bot-card">
                 {% if b.is_new %}
-                  <div class="bot-new-badge" title="First seen: {{ b.first_seen_at }}">NEW</div>
+                  <div class="bot-new-badge" title="Created: {{ b.created_at }}">NEW</div>
                 {% endif %}
 
                 <a href="{{ url_for('go_bot', bot_id=b.bot_id) }}" target="_blank">
@@ -515,10 +582,9 @@
 
                 <div class="bot-name">{{ b.name }}</div>
                 <div class="bot-title">{{ b.title }}</div>
-
-                {% if b.first_seen_at %}
+                {% if b.created_at %}
                   <div class="bot-first-seen">
-                    First seen: {{ b.first_seen_at[:16] | replace('T', ' ') }}
+                    Created: {{ b.created_at[:10] }}
                   </div>
                 {% endif %}
 
@@ -543,6 +609,9 @@
                     {% endfor %}
                   </div>
                 {% endif %}
+                <div style="margin-top:10px;">
+                  <a href="#" class="btn-link view-greeting" data-bot-id="{{ b.bot_id }}">View Greeting</a>
+                </div>                
               </div>
             {% endfor %}
           </div>
@@ -594,6 +663,64 @@
 
   <button id="scrollTopBtn" title="Back to top">↑</button>
 
+  <!-- Greeting Modal -->
+  <div id="greetingModal" class="modal-backdrop" style="display:none;">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="greetingTitle">
+      <div class="modal-header">
+        <div id="greetingTitle" class="modal-title">Greeting</div>
+        <button id="greetingClose" class="modal-close" aria-label="Close">×</button>
+      </div>
+      <div id="greetingMeta" class="modal-meta"></div>
+      <div id="greetingBody" class="modal-body"></div>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const modal = document.getElementById("greetingModal");
+      const closeBtn = document.getElementById("greetingClose");
+      const bodyEl = document.getElementById("greetingBody");
+      const metaEl = document.getElementById("greetingMeta");
+  
+      function openModal() { modal.style.display = "flex"; }
+      function closeModal() { modal.style.display = "none"; bodyEl.innerHTML = ""; metaEl.textContent = ""; }
+  
+      closeBtn?.addEventListener("click", closeModal);
+      modal?.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+  
+      document.querySelectorAll(".view-greeting").forEach(a => {
+        a.addEventListener("click", async (e) => {
+          e.preventDefault();
+          const botId = a.getAttribute("data-bot-id");
+          if (!botId) return;
+  
+          metaEl.textContent = `Bot ID: ${botId}`;
+          bodyEl.textContent = "Loading…";
+          openModal();
+  
+          try {
+            const res = await fetch(`/api/bot-greeting/${encodeURIComponent(botId)}`);
+            const data = await res.json();
+            const text = (data && data.greeting) ? String(data.greeting) : "";
+  
+            if (!text.trim()) {
+              bodyEl.textContent = "(No greeting found.)";
+              return;
+            }
+  
+            // Render markdown safely-ish (marked does not sanitize by default)
+            // If you want sanitization, we can add DOMPurify too.
+            bodyEl.innerHTML = marked.parse(text);
+          } catch (err) {
+            bodyEl.textContent = "Failed to load greeting.";
+          }
+        });
+      });
+    });
+  </script>
+  
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const btn = document.getElementById("scrollTopBtn");
